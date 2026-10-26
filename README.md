@@ -1,0 +1,84 @@
+# AcidTalk — app Flutter 2.3 (Android, iOS, Windows, macOS)
+
+Client nativo per il backend **AcidTalk 2.x** (Laravel). Un unico codice Flutter produce:
+
+| Piattaforma | Pacchetto prodotto dalla CI | Note |
+|---|---|---|
+| Android | `AcidTalk-android.apk`, `.aab` | firmato con la chiave di debug se non configuri i secrets |
+| iOS | `AcidTalk-ios-unsigned.ipa` | da firmare con il tuo account Apple Developer |
+| Windows 10/11 | `AcidTalk-windows-setup.exe`, `.zip` | installer Inno Setup con collegamento nel menu Start |
+| macOS 11+ | `AcidTalk-macos.dmg`, `.zip` | non notarizzato: al primo avvio clic destro → Apri |
+| Linux | `flutter build linux` | non incluso nella CI, usato per i test |
+
+## Funzionalità
+
+- Login con indirizzo del server (predefinito `https://talk.acidsoft.it`), token Sanctum salvato sul dispositivo.
+- Barra laterale stile Slack: **messaggi diretti in alto**, poi canali; ordinamento dei canali per **attività recente** o **alfabetico**; mostra solo i DM attivi negli ultimi **60 giorni** e i canali attivi negli ultimi **90** (valori presi dalle impostazioni dell'organizzazione), con il pulsante "Altri N meno recenti". La posizione di scorrimento resta invariata durante la sincronizzazione.
+- Messaggi con Markdown, blocchi di codice, menzioni, reazioni, thread, modifica ed eliminazione.
+- **Player audio** per i messaggi vocali e i file audio: play/pausa, forma d'onda con avanzamento cliccabile, durata, velocità 1× / 1,5× / 2×, un solo audio alla volta.
+- Registrazione di **messaggi vocali** (AAC .m4a) dal pulsante microfono.
+- **Anteprime dei link** (titolo, descrizione, immagine, favicon; miniatura con pulsante play per YouTube/Vimeo; pulsante "Partecipa" per Meet/Jitsi). L'autore può rimuovere un'anteprima.
+- Allegati: immagini con visualizzatore, PDF e altri file aperti con l'app di sistema.
+- Videochiamata dal pulsante in alto nel canale.
+- Assistente AI, canali pubblici e privati (sfoglia, unisciti, crea), nuovi messaggi diretti.
+- Tema chiaro, scuro o di sistema (sincronizzato con il profilo web).
+- Notifiche native (Android, iOS, macOS, Windows, Linux) per menzioni, DM e risposte.
+- Sincronizzazione: in tempo reale se il server ha Pusher o Reverb, altrimenti controllo automatico ogni 6 secondi (nuovi messaggi, modifiche, eliminazioni, anteprime).
+- Layout adattivo: tre colonne su desktop/tablet (≥ 900 px), navigazione a pagine su telefono.
+
+## Sviluppo
+
+```bash
+flutter pub get
+flutter run -d windows      # oppure macos, linux, un emulatore Android, un simulatore iOS
+flutter run --dart-define=ACIDTALK_SERVER=http://192.168.1.10:8000   # server predefinito diverso
+flutter analyze && flutter test
+```
+
+Requisiti: Flutter stabile ≥ 3.38 (Dart ≥ 3.9). Per Windows serve Visual Studio 2022 con "Sviluppo di applicazioni desktop con C++", per macOS/iOS Xcode.
+
+Struttura:
+
+```
+lib/
+  api/        models.dart, api.dart (client REST /api)
+  services/   realtime.dart (protocollo Pusher, valido anche per Reverb), notifier.dart
+  state/      app_state.dart (sessione, barra laterale, messaggi, polling)
+  screens/    login, home (adattiva), chat_view (canale e thread), profile
+  widgets/    sidebar, message_tile, composer, audio_player, attachments (file e anteprime link), dialogs
+```
+
+## Build automatiche con GitHub Actions
+
+Il file `.github/workflows/build.yml` compila tutte le piattaforme a ogni push su `main`. Per pubblicare una release con tutti i pacchetti:
+
+```bash
+git tag v2.3.0
+git push origin v2.3.0
+```
+
+Variabili e secrets facoltativi (Settings → Secrets and variables → Actions):
+
+| Nome | Tipo | Uso |
+|---|---|---|
+| `ACIDTALK_SERVER` | variable | server predefinito della schermata di login |
+| `ANDROID_KEYSTORE_BASE64` | secret | keystore release codificato in base64 (`base64 -w0 release.jks`) |
+| `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | secret | dati del keystore |
+
+Creare un keystore Android:
+
+```bash
+keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias acidtalk
+```
+
+In locale puoi in alternativa creare `android/key.properties` con `storeFile`, `storePassword`, `keyAlias`, `keyPassword`.
+
+### iOS e macOS firmati
+
+La CI produce pacchetti non firmati. Per distribuirli (TestFlight, App Store o fuori store con notarizzazione) apri `ios/Runner.xcworkspace` o `macos/Runner.xcworkspace` in Xcode, seleziona il tuo Team e usa Product → Archive. Gli entitlement macOS già impostati sono: rete in uscita, microfono, file scelti dall'utente, cartella Download.
+
+## Note sulle piattaforme
+
+- **Messaggi vocali registrati dal browser** (formato WebM/Opus): si ascoltano su Android, Windows e Linux; su iPhone e Mac il formato non è supportato da Apple e il player lo segnala. I vocali registrati dall'app (AAC .m4a) funzionano ovunque.
+- **Notifiche Windows**: compaiono come notifiche di sistema quando l'app è aperta o ridotta a icona. L'installer crea il collegamento con l'ID applicazione corretto.
+- **Notifiche con app chiusa** (push vere su Android/iOS) richiedono Firebase Cloud Messaging e APNs, non ancora inclusi: l'app notifica mentre è aperta o in background recente, e le email del server coprono il resto.

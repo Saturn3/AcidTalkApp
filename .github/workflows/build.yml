@@ -1,0 +1,136 @@
+name: Build AcidTalk (Android, iOS, Windows, macOS)
+
+# Compila l'app su ogni push/PR, e pubblica una Release GitHub con tutti i pacchetti
+# quando si crea un tag "v*" (es. git tag v2.3.0 && git push --tags).
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      server:
+        description: 'Server predefinito mostrato al login'
+        required: false
+        default: 'https://talk.acidsoft.it'
+
+env:
+  ACIDTALK_SERVER: ${{ github.event.inputs.server || vars.ACIDTALK_SERVER || 'https://talk.acidsoft.it' }}
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+
+  android:
+    needs: analyze
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      # Firma release opzionale tramite secrets (altrimenti viene usata la chiave di debug)
+      - name: Configura keystore
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > android/app/release.jks
+          cat > android/key.properties <<EOF
+          storeFile=release.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+      - run: flutter pub get
+      - run: flutter build apk --release --dart-define=ACIDTALK_SERVER=$ACIDTALK_SERVER
+      - run: flutter build appbundle --release --dart-define=ACIDTALK_SERVER=$ACIDTALK_SERVER
+      - run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AcidTalk-android.apk
+          cp build/app/outputs/bundle/release/app-release.aab dist/AcidTalk-android.aab
+      - uses: actions/upload-artifact@v4
+        with: { name: acidtalk-android, path: dist/*, retention-days: 30 }
+
+  ios:
+    needs: analyze
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: flutter pub get
+      # Build non firmata: per installarla su iPhone o caricarla su TestFlight servono certificato e profilo Apple
+      - run: flutter build ios --release --no-codesign --dart-define=ACIDTALK_SERVER=$ACIDTALK_SERVER
+      - run: |
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          cd dist && zip -qry AcidTalk-ios-unsigned.ipa Payload && rm -rf Payload
+      - uses: actions/upload-artifact@v4
+        with: { name: acidtalk-ios, path: dist/*, retention-days: 30 }
+
+  macos:
+    needs: analyze
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: flutter pub get
+      - run: flutter build macos --release --dart-define=ACIDTALK_SERVER=$ACIDTALK_SERVER
+      - name: Crea DMG
+        run: |
+          mkdir -p dist dmg
+          cp -R build/macos/Build/Products/Release/AcidTalk.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname AcidTalk -srcfolder dmg -ov -format UDZO dist/AcidTalk-macos.dmg
+          cd build/macos/Build/Products/Release && ditto -c -k --keepParent AcidTalk.app ../../../../../dist/AcidTalk-macos.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: acidtalk-macos, path: dist/*, retention-days: 30 }
+
+  windows:
+    needs: analyze
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: flutter pub get
+      - run: flutter build windows --release --dart-define=ACIDTALK_SERVER=${{ env.ACIDTALK_SERVER }}
+      - name: Crea pacchetto zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/AcidTalk-windows-x64.zip
+      - name: Crea installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=2.3.0 /DSourceDir="$pwd\build\windows\x64\runner\Release" /O"$pwd\dist" windows\installer.iss
+      - uses: actions/upload-artifact@v4
+        with: { name: acidtalk-windows, path: dist/*, retention-days: 30 }
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, ios, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
