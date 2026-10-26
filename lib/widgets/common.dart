@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../api/models.dart';
+import '../state/app_state.dart';
 import '../theme.dart';
 
 /// Logo AcidTalk disegnato in codice (nessun asset esterno).
@@ -31,19 +33,14 @@ class Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final at = AT.of(context);
-    final box = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: user.isAi ? null : hexColor(user.avatarColor),
-        gradient: user.isAi ? const LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFF1264A3)]) : null,
-        borderRadius: BorderRadius.circular(size * .22),
-      ),
-      alignment: Alignment.center,
-      child: user.isAi
-          ? Icon(Icons.auto_awesome_outlined, color: Colors.white, size: size * .55)
-          : Text(user.initials, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: size * .38)),
-    );
+    final api = context.read<AppState?>()?.api;
+    final url = user.avatarUrl != null && api != null ? api.abs(user.avatarUrl!) : null;
+    final box = url != null
+        ? ClipRRect(
+            borderRadius: BorderRadius.circular(size * .22),
+            child: Image.network(url, width: size, height: size, fit: BoxFit.cover, errorBuilder: (_, _, _) => _initialsBox()),
+          )
+        : _initialsBox();
     if (!showPresence) return box;
     return Stack(clipBehavior: Clip.none, children: [
       box,
@@ -61,6 +58,24 @@ class Avatar extends StatelessWidget {
         ),
       ),
     ]);
+  }
+
+  Widget _initialsBox() {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: user.isAi ? null : hexColor(user.avatarColor),
+        gradient: user.isAi ? const LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFF1264A3)]) : null,
+        borderRadius: BorderRadius.circular(size * .22),
+      ),
+      alignment: Alignment.center,
+      child: user.isAi
+          ? Icon(Icons.auto_awesome_outlined, color: Colors.white, size: size * .55)
+          : user.isBot
+              ? Icon(Icons.smart_toy_outlined, color: Colors.white, size: size * .55)
+              : Text(user.initials, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: size * .38)),
+    );
   }
 }
 

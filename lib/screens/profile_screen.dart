@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,7 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
-const appVersion = '2.3.0';
+const appVersion = '2.4.0';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -29,6 +30,28 @@ class ProfileScreen extends StatelessWidget {
                 leading: Avatar(me, size: 48),
                 title: Text(me.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
                 subtitle: Text([me.email, me.title].whereType<String>().join(' · ')),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Wrap(spacing: 8, runSpacing: 8, children: [
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                    label: Text(me.avatarUrl == null ? 'Imposta immagine profilo' : 'Cambia immagine'),
+                    onPressed: () => _pickAvatar(context, s),
+                  ),
+                  if (me.avatarUrl != null)
+                    TextButton.icon(
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: const Text('Rimuovi'),
+                      onPressed: () async {
+                        try {
+                          await s.removeAvatar();
+                        } catch (e) {
+                          if (context.mounted) toast(context, '$e');
+                        }
+                      },
+                    ),
+                ]),
               ),
               _hdr('Aspetto', at),
               Padding(
@@ -82,6 +105,13 @@ class ProfileScreen extends StatelessWidget {
                 },
               ),
               ListTile(
+                leading: Icon(Icons.cloud_outlined, color: s.pushAvailable && s.org.pushEnabled ? at.online : at.muted),
+                title: const Text('Notifiche push (app chiusa)'),
+                subtitle: Text(!s.org.pushEnabled
+                    ? 'Il server non ha Firebase configurato (Amministrazione › Push)'
+                    : (s.pushStatus ?? (s.pushAvailable ? 'In attivazione…' : 'Non disponibili in questa build'))),
+              ),
+              ListTile(
                 leading: Icon(Icons.sync, color: s.realtimeConnected ? at.online : Colors.amber),
                 title: Text(s.realtimeConnected ? 'Sincronizzazione in tempo reale attiva' : 'Sincronizzazione periodica (ogni 6 secondi)'),
                 subtitle: Text(s.realtimeConnected ? 'Collegato al server WebSocket (Pusher o Reverb)' : 'Il server non ha un WebSocket configurato: l\'app controlla i nuovi messaggi in automatico'),
@@ -102,6 +132,17 @@ class ProfileScreen extends StatelessWidget {
         ),
       ]),
     );
+  }
+
+  Future<void> _pickAvatar(BuildContext context, AppState s) async {
+    final files = await FilePicker.pickFiles(type: FileType.image);
+    if (files.isEmpty || files.first.path == null) return;
+    try {
+      await s.updateAvatar(files.first.path!, name: files.first.name);
+      if (context.mounted) toast(context, 'Immagine profilo aggiornata');
+    } catch (e) {
+      if (context.mounted) toast(context, '$e');
+    }
   }
 
   Widget _hdr(String t, AT at) => Padding(

@@ -1,6 +1,6 @@
-# AcidTalk — app Flutter 2.3 (Android, iOS, Windows, macOS)
+# AcidTalk — app Flutter 2.4 (Android, iOS, Windows, macOS)
 
-Client nativo per il backend **AcidTalk 2.x** (Laravel). Un unico codice Flutter produce:
+Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedono il backend 2.4). Un unico codice Flutter produce:
 
 | Piattaforma | Pacchetto prodotto dalla CI | Note |
 |---|---|---|
@@ -11,6 +11,17 @@ Client nativo per il backend **AcidTalk 2.x** (Laravel). Un unico codice Flutter
 | Linux | `flutter build linux` | non incluso nella CI, usato per i test |
 
 ## Funzionalità
+
+### Novità 2.4
+
+- **Conferme di lettura**: una spunta sui propri messaggi quando sono inviati, due spunte quando qualcuno li ha letti (blu se letti da tutti i membri); il tooltip mostra chi li ha letti. Si disattivano da Amministrazione › Organizzazione.
+- **Immagine profilo**: Profilo › Imposta immagine profilo (ritagliata a 256×256 dal server); gli avatar compaiono in chat, nella barra laterale e nelle menzioni.
+- **Reazioni con qualsiasi emoji**: pulsante "Scegli una reazione" nella barra al passaggio del mouse, nel menu a pressione prolungata e accanto alle reazioni esistenti. Il selettore ha categorie, ricerca (anche in italiano: *pollice*, *cuore*, *festa*) e le emoji usate di recente.
+- **Emoji nel testo**: digitando `:` seguito da due lettere compaiono i suggerimenti (Tab/Invio per inserire, frecce per scegliere); il pulsante faccina apre il selettore completo. Il server converte `:shortcode:` ed emoticon come `:)` e mostra in grande i messaggi di sole emoji.
+- **Anteprime dei link a riquadro**: immagine in alto, titolo, descrizione e dominio.
+- **Utenti bot** (creati da Amministrazione › Bot) con etichetta BOT e avatar dedicato.
+- **Assistente AI affidabile**: dopo l'invio l'app chiede al server di generare subito la risposta (`POST /api/messages/{id}/tasks/ai`) e mostra "AI sta scrivendo…"; gli errori del provider compaiono in una notifica in basso invece di restare silenziosi.
+- **Notifiche push Firebase** (Android, iOS, macOS) anche ad app chiusa: vedi la sezione dedicata.
 
 - Login con indirizzo del server (predefinito `https://talk.acidsoft.it`), token Sanctum salvato sul dispositivo.
 - Barra laterale stile Slack: **messaggi diretti in alto**, poi canali; ordinamento dei canali per **attività recente** o **alfabetico**; mostra solo i DM attivi negli ultimi **60 giorni** e i canali attivi negli ultimi **90** (valori presi dalle impostazioni dell'organizzazione), con il pulsante "Altri N meno recenti". La posizione di scorrimento resta invariata durante la sincronizzazione.
@@ -53,8 +64,8 @@ lib/
 Il file `.github/workflows/build.yml` compila tutte le piattaforme a ogni push su `main`. Per pubblicare una release con tutti i pacchetti:
 
 ```bash
-git tag v2.3.0
-git push origin v2.3.0
+git tag v2.4.0
+git push origin v2.4.0
 ```
 
 Variabili e secrets facoltativi (Settings → Secrets and variables → Actions):
@@ -64,6 +75,8 @@ Variabili e secrets facoltativi (Settings → Secrets and variables → Actions)
 | `ACIDTALK_SERVER` | variable | server predefinito della schermata di login |
 | `ANDROID_KEYSTORE_BASE64` | secret | keystore release codificato in base64 (`base64 -w0 release.jks`) |
 | `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | secret | dati del keystore |
+| `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_SENDER_ID` | secret | progetto Firebase per le notifiche push |
+| `FIREBASE_ANDROID_APP_ID`, `FIREBASE_APPLE_APP_ID` | secret | ID app Firebase Android (`1:…:android:…`) e Apple (`1:…:ios:…`) |
 
 Creare un keystore Android:
 
@@ -76,6 +89,29 @@ In locale puoi in alternativa creare `android/key.properties` con `storeFile`, `
 ### iOS e macOS firmati
 
 La CI produce pacchetti non firmati. Per distribuirli (TestFlight, App Store o fuori store con notarizzazione) apri `ios/Runner.xcworkspace` o `macos/Runner.xcworkspace` in Xcode, seleziona il tuo Team e usa Product → Archive. Gli entitlement macOS già impostati sono: rete in uscita, microfono, file scelti dall'utente, cartella Download.
+
+## Notifiche push con Firebase
+
+Le chiavi Firebase si passano in compilazione, senza `google-services.json` né `GoogleService-Info.plist`:
+
+```bash
+flutter build apk --release \
+  --dart-define=FIREBASE_API_KEY=AIza... \
+  --dart-define=FIREBASE_PROJECT_ID=acidtalk-12345 \
+  --dart-define=FIREBASE_SENDER_ID=123456789012 \
+  --dart-define=FIREBASE_ANDROID_APP_ID=1:123456789012:android:abc123 \
+  --dart-define=FIREBASE_APPLE_APP_ID=1:123456789012:ios:def456
+```
+
+Senza queste chiavi l'app funziona normalmente con le sole notifiche locali (attive mentre l'app è aperta o in background recente). Dopo il login l'app registra il token del dispositivo sul server (`POST /api/push/devices`) e lo rimuove al logout. Il server invia le push quando in Amministrazione › Push è caricato l'account di servizio Firebase. La procedura completa (progetto Firebase, chiave APNs per iOS, capability Xcode, account di servizio) è in `docs/push-firebase.md` del backend.
+
+**Windows e Linux** non usano Firebase. Il plugin `firebase_core` per Windows scaricherebbe a ogni build un SDK C++ da circa 940 MB, per cui prima di compilare per desktop si usa lo script (la CI lo fa in automatico):
+
+```bash
+bash tool/no_firebase.sh     # rimuove Firebase da pubspec.yaml e usa lib/services/push_stub.dart
+flutter pub get && flutter build windows
+git checkout pubspec.yaml lib/services/push.dart   # per tornare alla versione con Firebase
+```
 
 ## Note sulle piattaforme
 

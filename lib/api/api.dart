@@ -25,7 +25,8 @@ class Api {
       baseUrl: '${server.replaceAll(RegExp(r'/+$'), '')}/api',
       connectTimeout: const Duration(seconds: 12),
       receiveTimeout: const Duration(seconds: 40),
-      headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+      // X-AcidTalk-Tasks: client → AI, anteprime e bot vengono eseguiti dall'app con runTask()
+      headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-AcidTalk-Tasks': 'client'},
     ));
     dio.interceptors.add(InterceptorsWrapper(onRequest: (o, h) {
       if (token != null) o.headers['Authorization'] = 'Bearer $token';
@@ -98,10 +99,37 @@ class Api {
   Future<List<AppUser>> users() async => _list(await _req(() => dio.get('/users'))).map(AppUser.fromJson).toList();
 
   // ---------------- messaggi
-  Future<({List<Message> items, bool hasMore, String? serverTime})> messages(int channelId, {int? before, int? after, int limit = 50}) async {
+  Future<({List<Message> items, bool hasMore, String? serverTime, List<ReadReceipt>? reads})> messages(int channelId, {int? before, int? after, int limit = 50}) async {
     final r = await _req(() => dio.get('/channels/$channelId/messages', queryParameters: {'limit': limit, 'before': ?before, 'after': ?after}));
     final meta = (r is Map ? r['meta'] : null) as Map?;
-    return (items: _list(r).map(Message.fromJson).toList(), hasMore: meta?['has_more'] == true, serverTime: meta?['server_time'] as String?);
+    return (items: _list(r).map(Message.fromJson).toList(), hasMore: meta?['has_more'] == true, serverTime: meta?['server_time'] as String?, reads: meta?['reads'] is List ? ReadReceipt.list(meta!['reads']) : null);
+  }
+
+  /// Esegue un'attività del messaggio appena inviato (ai | previews | bots): sincrona e idempotente.
+  Future<({Message? message, List<Message> replies})> runTask(int messageId, String task) async {
+    final r = await _req(() => dio.post('/messages/$messageId/tasks/$task', options: Options(receiveTimeout: const Duration(minutes: 4))));
+    return (
+      message: r is Map && r['message'] is Map ? Message.fromJson(Map<String, dynamic>.from(r['message'])) : null,
+      replies: ((r is Map ? r['replies'] : null) as List? ?? const []).map((e) => Message.fromJson(Map<String, dynamic>.from(e as Map))).toList(),
+    );
+  }
+
+  Future<List<ReadReceipt>> reads(int channelId) async => ReadReceipt.list((await _req(() => dio.get('/channels/$channelId/reads')))['data']);
+
+  // ---------------- avatar e push
+  Future<AppUser> uploadAvatar(String path, {String? name}) async {
+    final filename = name ?? path.split(Platform.pathSeparator).last;
+    final type = lookupMimeType(filename) ?? 'image/jpeg';
+    final form = FormData.fromMap({'avatar': await MultipartFile.fromFile(path, filename: filename, contentType: MediaType.parse(type))});
+    return AppUser.fromJson(_one(await _req(() => dio.post('/me/avatar', data: form))));
+  }
+
+  Future<AppUser> removeAvatar() async => AppUser.fromJson(_one(await _req(() => dio.delete('/me/avatar'))));
+  Future<void> registerDevice(String token, String platform, {String? name}) => _req(() => dio.post('/push/devices', data: {'token': token, 'platform': platform, 'device_name': ?name}));
+  Future<void> unregisterDevice(String token) async {
+    try {
+      await dio.delete('/push/devices', data: {'token': token});
+    } catch (_) {}
   }
 
   /// Sincronizzazione senza WebSocket: messaggi modificati/eliminati dopo [since].

@@ -14,8 +14,9 @@ class MessageList extends StatefulWidget {
   final bool loading, hasMore, inThread;
   final VoidCallback? onLoadMore;
   final Widget? header;
+  final Widget? footer; // es. indicatore "l'assistente sta scrivendo"
   final void Function(Message) onEdit;
-  const MessageList({super.key, required this.messages, this.loading = false, this.hasMore = false, this.inThread = false, this.onLoadMore, this.header, required this.onEdit});
+  const MessageList({super.key, required this.messages, this.loading = false, this.hasMore = false, this.inThread = false, this.onLoadMore, this.header, this.footer, required this.onEdit});
 
   @override
   State<MessageList> createState() => _MessageListState();
@@ -52,7 +53,7 @@ class _MessageListState extends State<MessageList> {
       final compact = !newDay && prev.user.id == m.user.id && m.createdAt.difference(prev.createdAt).inMinutes < 5 && prev.kind != 'call';
       items.add(MessageTile(key: ValueKey(m.id), m: m, compact: compact, inThread: widget.inThread, onEdit: widget.onEdit));
     }
-    final rev = items.reversed.toList();
+    final rev = [if (widget.footer != null) widget.footer!, ...items.reversed];
     return ListView.builder(
       controller: _scroll,
       reverse: true,
@@ -117,6 +118,13 @@ class _ChatViewState extends State<ChatView> {
       );
     }
     final msgs = s.messages[c.id] ?? const <Message>[];
+    if (s.lastError != null) {
+      final err = s.lastError!;
+      s.lastError = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), duration: const Duration(seconds: 6)));
+      });
+    }
     final title = Row(children: [
       if (c.otherUser != null) ...[Avatar(c.otherUser!, size: 24, showPresence: false), const SizedBox(width: 8)] else
         Icon(c.isAi ? Icons.auto_awesome_outlined : (c.type == 'private' ? Icons.lock_outline : Icons.tag), size: 18, color: at.text),
@@ -172,6 +180,7 @@ class _ChatViewState extends State<ChatView> {
             onLoadMore: () => s.loadMessages(c.id, older: true),
             onEdit: (m) => _composer.currentState?.startEdit(m),
             header: _ChannelIntro(c),
+            footer: s.aiTyping.contains('c${c.id}') ? TypingRow(name: s.org.aiBotName) : null,
           ),
         ),
         Composer(
@@ -237,10 +246,58 @@ class _ThreadViewState extends State<ThreadView> {
             key: ValueKey('th-${root.id}'),
             inThread: true,
             messages: [root, ...s.threadReplies],
+            footer: s.aiTyping.contains('t${root.id}') ? TypingRow(name: s.org.aiBotName) : null,
             onEdit: (m) => _composer.currentState?.startEdit(m),
           ),
         ),
         Composer(key: _composer, parentId: root.id, placeholder: 'Rispondi…', disabled: s.active?.isArchived == true),
+      ]),
+    );
+  }
+}
+
+/// Riga animata "nome sta scrivendo…" mostrata mentre l'assistente AI genera la risposta.
+class TypingRow extends StatefulWidget {
+  final String name;
+  const TypingRow({super.key, required this.name});
+  @override
+  State<TypingRow> createState() => _TypingRowState();
+}
+
+class _TypingRowState extends State<TypingRow> with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final at = AT.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      child: Row(children: [
+        Avatar(AppUser(name: widget.name, initials: 'AI', isAi: true), size: 28),
+        const SizedBox(width: 10),
+        AnimatedBuilder(
+          animation: _c,
+          builder: (_, _) => Row(children: [
+            for (var i = 0; i < 3; i++)
+              Container(
+                width: 7,
+                height: 7,
+                margin: const EdgeInsets.only(right: 4),
+                decoration: BoxDecoration(
+                  color: at.muted.withValues(alpha: (((_c.value * 3 - i) % 3) < 1) ? 1 : .35),
+                  shape: BoxShape.circle,
+                ),
+              ),
+          ]),
+        ),
+        const SizedBox(width: 6),
+        Text('${widget.name} sta scrivendo…', style: TextStyle(color: at.muted, fontSize: 13)),
       ]),
     );
   }

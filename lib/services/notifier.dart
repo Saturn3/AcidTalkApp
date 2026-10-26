@@ -29,6 +29,12 @@ class Notifier {
           if (r.payload != null) onTap?.call(r.payload!);
         },
       );
+      // canale usato sia dalle notifiche locali sia dalle push Firebase (android.notification.channel_id)
+      if (Platform.isAndroid) {
+        await _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(
+              const AndroidNotificationChannel('messages', 'Messaggi', description: 'Menzioni, messaggi diretti e risposte', importance: Importance.high),
+            );
+      }
       _ready = true;
     } catch (e) {
       debugPrint('Notifiche non disponibili: $e');

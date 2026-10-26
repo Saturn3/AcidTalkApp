@@ -13,6 +13,7 @@ import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'emoji_picker.dart';
 
 /// Barra di scrittura: testo con Markdown, allegati, messaggi vocali, modifica di un messaggio.
 class Composer extends StatefulWidget {
@@ -43,7 +44,27 @@ class ComposerState extends State<Composer> {
   @override
   void initState() {
     super.initState();
+    EmojiCatalog.load();
     _focus.onKeyEvent = (node, e) {
+      if (e is KeyDownEvent && _emojiHits.isNotEmpty) {
+        final k = e.logicalKey;
+        if (k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.tab) {
+          _applyEmoji(_emojiHits[_emojiSel].char);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.arrowDown) {
+          setState(() => _emojiSel = (_emojiSel + 1) % _emojiHits.length);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.arrowUp) {
+          setState(() => _emojiSel = (_emojiSel - 1 + _emojiHits.length) % _emojiHits.length);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.escape) {
+          setState(() => _emojiHits = const []);
+          return KeyEventResult.handled;
+        }
+      }
       if (_desktop && e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.enter && !HardwareKeyboard.instance.isShiftPressed) {
         _submit();
         return KeyEventResult.handled;
@@ -54,7 +75,50 @@ class ComposerState extends State<Composer> {
       }
       return KeyEventResult.ignored;
     };
-    _text.addListener(() => setState(() {}));
+    _text.addListener(() {
+      _emojiWatch();
+      setState(() {});
+    });
+  }
+
+  // ---- inserimento rapido emoji con ":" (es. :pollice → 👍) ----
+  List<EmojiItem> _emojiHits = const [];
+  int _emojiSel = 0;
+  String _emojiLast = '';
+  static final _emojiRe = RegExp(r'(?:^|\s):([\p{L}\d_+\-]{2,})$', unicode: true);
+
+  void _emojiWatch() {
+    final sel = _text.selection;
+    final pos = sel.isValid && sel.isCollapsed ? sel.baseOffset : -1;
+    final m = pos >= 0 ? _emojiRe.firstMatch(_text.text.substring(0, pos)) : null;
+    final q = m?.group(1) ?? '';
+    if (q == _emojiLast) return;
+    _emojiLast = q;
+    _emojiHits = q.isEmpty ? const [] : EmojiCatalog.search(q, limit: 12);
+    _emojiSel = 0;
+  }
+
+  void _applyEmoji(String e) {
+    final pos = _text.selection.baseOffset;
+    final before = _text.text.substring(0, pos);
+    final start = before.lastIndexOf(':');
+    if (start < 0) return;
+    final t = '${_text.text.substring(0, start)}$e ${_text.text.substring(pos)}';
+    _emojiHits = const [];
+    _emojiLast = '';
+    _text.value = TextEditingValue(text: t, selection: TextSelection.collapsed(offset: start + e.length + 1));
+    EmojiCatalog.remember(e);
+    _focus.requestFocus();
+  }
+
+  Future<void> _openEmojiPicker() async {
+    final e = await pickEmoji(context);
+    if (e == null) return;
+    final sel = _text.selection;
+    final pos = sel.isValid ? sel.baseOffset : _text.text.length;
+    final t = _text.text.replaceRange(pos, sel.isValid ? sel.extentOffset : pos, e);
+    _text.value = TextEditingValue(text: t, selection: TextSelection.collapsed(offset: pos + e.length));
+    _focus.requestFocus();
   }
 
   @override
@@ -225,6 +289,32 @@ class ComposerState extends State<Composer> {
                 if (_progress != null) SizedBox(width: 140, child: LinearProgressIndicator(value: _progress)),
               ]),
             ),
+          if (_emojiHits.isNotEmpty && !_recording)
+            Container(
+              height: 40,
+              margin: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+              decoration: BoxDecoration(color: at.surface2, borderRadius: BorderRadius.circular(8), border: Border.all(color: at.border)),
+              child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 4), children: [
+                for (var i = 0; i < _emojiHits.length; i++)
+                  Tooltip(
+                    message: ':${_emojiHits[i].aliases.first}:',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () => _applyEmoji(_emojiHits[i].char),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        decoration: BoxDecoration(color: i == _emojiSel ? at.accent.withValues(alpha: .14) : null, borderRadius: BorderRadius.circular(6)),
+                        alignment: Alignment.center,
+                        child: Row(children: [
+                          Text(_emojiHits[i].char, style: const TextStyle(fontSize: 20)),
+                          if (i == _emojiSel) ...[const SizedBox(width: 6), Text(':${_emojiHits[i].aliases.first}:', style: TextStyle(color: at.muted, fontSize: 12))],
+                        ]),
+                      ),
+                    ),
+                  ),
+              ]),
+            ),
           if (_recording)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 14, 8, 8),
@@ -263,6 +353,7 @@ class ComposerState extends State<Composer> {
               _Btn(Icons.code, 'Codice', _recording ? null : () => _wrap('`')),
               _Btn(Icons.data_object, 'Blocco di codice', _recording ? null : () => _wrap('```\n', '\n```')),
               _Btn(Icons.alternate_email, 'Menziona', _recording ? null : () => _wrap('@', '')),
+              _Btn(Icons.sentiment_satisfied_outlined, 'Emoji (oppure digita : e due lettere)', _recording ? null : _openEmojiPicker),
               const Spacer(),
               if (!canSend && _editing == null)
                 _Btn(_recording ? Icons.stop_circle_outlined : Icons.mic_none_outlined, _recording ? 'Invia messaggio vocale' : 'Registra messaggio vocale', _sending ? null : _toggleRecording, color: _recording ? at.mention : null),

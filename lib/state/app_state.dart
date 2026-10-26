@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api.dart';
 import '../api/models.dart';
 import '../services/notifier.dart';
+import '../services/push.dart';
 import '../services/realtime.dart';
 
 enum SortMode { recent, alpha }
@@ -26,6 +27,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   final Map<int, bool> hasMore = {};
   final Map<int, String> _syncAt = {};
   final Set<int> loading = {};
+  /// Conferme di lettura per canale
+  final Map<int, List<ReadReceipt>> reads = {};
+  /// Indicatore "sta scrivendo" dell'assistente AI: `c<canale>` o `t<thread>`
+  final Set<String> aiTyping = {};
   int? activeId;
 
   Message? threadRoot;
@@ -60,6 +65,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       final id = int.tryParse(payload);
       if (id != null) openChannel(id);
     };
+    Push.instance.onOpen = (channelId) => openChannel(channelId);
+    Push.instance.onForegroundMessage = () => _pollOnce();
     final token = _prefs.getString('token');
     if (token != null) {
       api = Api(server, token: token);
@@ -103,6 +110,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> logout() async {
     _poll?.cancel();
     _rt?.close();
+    if (api != null) await Push.instance.unregister(api!);
     await api?.logout();
     await _prefs.remove('token');
     api = null;
@@ -130,7 +138,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _startRealtime();
     _startPolling();
     Notifier.instance.requestPermission();
+    // notifiche push Firebase (solo se l'app è compilata con le chiavi e il server è configurato)
+    Push.instance.register(api!).catchError((_) {});
   }
+
+  bool get readReceiptsEnabled => org.readReceipts;
+  bool get pushAvailable => Push.instance.available;
+  String? get pushStatus => Push.instance.status;
 
   /// Sui telefoni l'app parte dalla lista conversazioni, su desktop/tablet apre l'ultimo canale.
   bool get _isMobileLayoutHint => Platform.isAndroid || Platform.isIOS;
@@ -148,6 +162,32 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     try {
       me = await api?.updatePrefs({'theme': pref});
     } catch (_) {}
+  }
+
+  Future<void> updateAvatar(String path, {String? name}) async {
+    me = await api!.uploadAvatar(path, name: name);
+    notifyListeners();
+  }
+
+  Future<void> removeAvatar() async {
+    me = await api!.removeAvatar();
+    notifyListeners();
+  }
+
+  /// Membri (escluso l'autore) che hanno letto il messaggio.
+  List<ReadReceipt> readersOf(Message m) {
+    final t = m.createdAt.subtract(const Duration(seconds: 1));
+    return (reads[m.channelId] ?? const <ReadReceipt>[]).where((r) => r.userId != m.user.id && r.lastReadAt != null && !r.lastReadAt!.isBefore(t)).toList();
+  }
+
+  List<ReadReceipt> othersIn(int channelId) => (reads[channelId] ?? const <ReadReceipt>[]).where((r) => r.userId != me?.id).toList();
+
+  Timer? _readTimer;
+  void _markReadSoon(int id) {
+    _readTimer?.cancel();
+    _readTimer = Timer(const Duration(milliseconds: 800), () {
+      if (_foreground && activeId == id) api?.markRead(id).catchError((_) {});
+    });
   }
 
   Future<void> setPush(bool v) async {
@@ -234,6 +274,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       final r = await api!.messages(id, before: before);
       messages[id] = older ? [...r.items, ...?messages[id]] : r.items;
       hasMore[id] = r.hasMore;
+      if (r.reads != null) reads[id] = r.reads!;
       if (!older && r.serverTime != null) _syncAt[id] = r.serverTime!;
     } finally {
       loading.remove(id);
@@ -276,12 +317,42 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _upsert(m);
     if (parentId != null && threadRoot != null) await openThread(threadRoot!);
     notifyListeners();
+    _runTasks(m);
   }
 
-  Future<void> edit(Message m, String body) async {
-    _upsert(await api!.edit(m.id, body));
-    notifyListeners();
+  /// Risposta AI, anteprime dei link e webhook dei bot: eseguiti dall'app subito dopo l'invio
+  /// (affidabile anche su hosting condiviso); il cron del server recupera quelli rimasti in sospeso.
+  void _runTasks(Message m) {
+    for (final task in m.pending) {
+      final key = m.parentId != null ? 't${m.parentId}' : 'c${m.channelId}';
+      if (task == 'ai') {
+        aiTyping.add(key);
+        notifyListeners();
+      }
+      api!.runTask(m.id, task).then((r) {
+        if (r.message != null) _upsert(r.message!, onlyExisting: true);
+        for (final x in r.replies) {
+          _upsert(x);
+        }
+      }).catchError((Object e) {
+        if (task == 'ai') lastError = 'Assistente AI: $e';
+      }).whenComplete(() {
+        if (task == 'ai') aiTyping.remove(key);
+        notifyListeners();
+      });
+    }
   }
+
+  /// Ultimo errore da mostrare in una SnackBar (letto e azzerato dalla UI).
+  String? lastError;
+
+  Future<void> edit(Message m, String body) async {
+    final r = await api!.edit(m.id, body);
+    _upsert(r);
+    notifyListeners();
+    _runTasks(r);
+  }
+
 
   Future<void> delete(Message m) async {
     await api!.delete(m.id);
@@ -381,7 +452,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         final r = await api!.messages(id, after: last);
         for (final m in r.items) {
           _upsert(m);
+          if (m.isAi) aiTyping.clear();
         }
+        if (r.reads != null) reads[id] = r.reads!;
         if (_syncAt[id] != null && !realtimeConnected) {
           final ch = await api!.changes(id, _syncAt[id]!);
           if (ch.serverTime != null) _syncAt[id] = ch.serverTime!;
@@ -445,8 +518,17 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
               final m = Message.fromJson(Map<String, dynamic>.from(data['message']));
               if (m.channelId == activeId || m.parentId != null) {
                 _upsert(m, onlyExisting: event == 'message.updated');
+                if (m.isAi) aiTyping.clear();
+                if (event == 'message.sent' && m.channelId == activeId && m.user.id != me?.id) _markReadSoon(m.channelId);
               }
             }
+          case 'channel.read':
+            final cid = asInt(data['channel_id']);
+            final list = reads[cid] ??= [];
+            final uid = asInt(data['user_id']);
+            final i = list.indexWhere((r) => r.userId == uid);
+            final rr = ReadReceipt(uid, i >= 0 ? list[i].name : '', parseDate(data['last_read_at']));
+            i >= 0 ? list[i] = rr : list.add(rr);
           case 'message.deleted':
             _remove(asInt(data['id']), asInt(data['channel_id']));
           case 'user.touched':

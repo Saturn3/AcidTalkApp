@@ -139,60 +139,64 @@ class LinkPreviewCard extends StatelessWidget {
       );
     }
     final host = Uri.tryParse(p.url)?.host.replaceFirst('www.', '') ?? '';
-    final large = p.kind == 'video' || p.provider == 'large' || p.kind == 'image';
     final img = p.image == null
         ? null
-        : Image.network(p.image!, fit: BoxFit.cover, errorBuilder: (_, _, _) => const SizedBox.shrink());
+        : Image.network(p.image!, fit: BoxFit.cover, width: double.infinity, errorBuilder: (_, _, _) => const SizedBox.shrink());
+    // Riquadro: immagine in alto, poi titolo, descrizione e dominio (come la versione web 2.4)
     return Container(
       margin: const EdgeInsets.only(top: 6),
-      constraints: const BoxConstraints(maxWidth: 460),
-      decoration: BoxDecoration(border: Border(left: BorderSide(color: at.border, width: 4))),
-      padding: const EdgeInsets.only(left: 12),
-      child: InkWell(
-        onTap: () => openUrl(p.url),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Image.network('https://www.google.com/s2/favicons?domain=$host&sz=32', width: 14, height: 14, errorBuilder: (_, _, _) => Icon(Icons.public, size: 14, color: at.muted)),
-            const SizedBox(width: 6),
-            Expanded(child: Text(p.siteName ?? host, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: at.muted, fontSize: 12, fontWeight: FontWeight.w600))),
-            if (onRemove != null)
-              InkWell(
-                onTap: onRemove,
-                borderRadius: BorderRadius.circular(10),
-                child: Tooltip(message: 'Rimuovi anteprima', child: Padding(padding: const EdgeInsets.all(2), child: Icon(Icons.close, size: 14, color: at.muted))),
-              ),
-          ]),
-          if (p.title != null) ...[
-            const SizedBox(height: 2),
-            Text(p.title!, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: at.accent, fontWeight: FontWeight.w700)),
-          ],
-          if (!large || img == null)
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (p.description != null)
-                Expanded(child: Padding(padding: const EdgeInsets.only(top: 2), child: Text(p.description!, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: at.text, fontSize: 13)))),
-              if (img != null) ...[const SizedBox(width: 10), ClipRRect(borderRadius: BorderRadius.circular(6), child: SizedBox(width: 72, height: 72, child: img))],
-            ])
-          else ...[
-            if (p.description != null) Padding(padding: const EdgeInsets.only(top: 2), child: Text(p.description!, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: at.text, fontSize: 13))),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 360, maxHeight: 203),
-                child: Stack(alignment: Alignment.center, children: [
-                  AspectRatio(aspectRatio: 16 / 9, child: img),
+      constraints: const BoxConstraints(maxWidth: 420),
+      decoration: BoxDecoration(color: at.surface, borderRadius: BorderRadius.circular(10), border: Border.all(color: at.border)),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => openUrl(p.url),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+            if (img != null)
+              AspectRatio(
+                aspectRatio: 1.91,
+                child: Stack(fit: StackFit.expand, children: [
+                  Container(color: at.surface2, child: img),
                   if (p.kind == 'video')
-                    Container(
-                      width: 54,
-                      height: 54,
-                      decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                      child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 34),
+                    Center(
+                      child: Container(
+                        width: 54,
+                        height: 54,
+                        decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 34),
+                      ),
                     ),
                 ]),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(p.title ?? host, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: at.text, fontWeight: FontWeight.w700, fontSize: 14)),
+                    if (p.description != null) ...[
+                      const SizedBox(height: 3),
+                      Text(p.description!, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: at.muted, fontSize: 13, height: 1.35)),
+                    ],
+                    const SizedBox(height: 6),
+                    Row(children: [
+                      Image.network('https://www.google.com/s2/favicons?domain=$host&sz=32', width: 14, height: 14, errorBuilder: (_, _, _) => Icon(Icons.public, size: 14, color: at.muted)),
+                      const SizedBox(width: 6),
+                      Expanded(child: Text(p.siteName != null && p.siteName != host ? '${p.siteName} · $host' : host, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: at.muted, fontSize: 12))),
+                    ]),
+                  ]),
+                ),
+                if (onRemove != null)
+                  InkWell(
+                    onTap: onRemove,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Tooltip(message: 'Rimuovi anteprima', child: Padding(padding: const EdgeInsets.all(2), child: Icon(Icons.close, size: 15, color: at.muted))),
+                  ),
+              ]),
             ),
-          ],
-        ]),
+          ]),
+        ),
       ),
     );
   }

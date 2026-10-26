@@ -49,4 +49,27 @@ void main() {
     expect(o.realtime?['driver'], 'pusher');
     expect(OrgConfig.fromJson({'org': {}}).dmDays, 60);
   });
+
+  test('2.4: avatar, bot, conferme di lettura e attività in sospeso', () {
+    final u = AppUser.fromJson({'id': 8, 'name': 'Meteo', 'is_bot': true, 'avatar_url': '/media/avatars/8.jpg'});
+    expect(u.isBot, isTrue);
+    expect(u.avatarUrl, '/media/avatars/8.jpg');
+    expect(u.mentionHandle, 'meteo');
+    expect(AppUser.fromJson({'name': 'Giulia Verdi', 'avatar_url': ''}).avatarUrl, isNull);
+    final r = ReadReceipt.list([
+      {'user_id': 2, 'name': 'Giulia', 'last_read_at': '2026-10-26T10:00:00Z'},
+      {'user_id': 3, 'name': 'Luca', 'last_read_at': null},
+    ]);
+    expect(r.length, 2);
+    expect(r.first.lastReadAt?.toUtc().hour, 10);
+    expect(r.last.lastReadAt, isNull);
+    final m = Message.fromJson({
+      'id': 5, 'channel_id': 1, 'body': '@ai ciao', 'html': '<p>@ai ciao</p>',
+      'user': {'id': 1, 'name': 'Admin'}, 'created_at': '2026-10-26T09:00:00Z',
+      'meta': {'pending': ['ai', 'previews']},
+    });
+    expect(m.pending, ['ai', 'previews']);
+    final o = OrgConfig.fromJson({'org': {'read_receipts': false}, 'push_enabled': true});
+    expect(o.readReceipts, isFalse);
+  });
 }

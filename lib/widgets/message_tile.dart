@@ -8,6 +8,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import 'attachments.dart';
 import 'common.dart';
+import 'emoji_picker.dart';
 
 const quickEmojis = ['👍', '❤️', '😂', '🎉', '👀', '✅'];
 
@@ -37,9 +38,11 @@ class _MessageTileState extends State<MessageTile> {
         Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
           Flexible(child: Text(m.user.name, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w800, color: at.text, fontSize: 15))),
           if (m.user.isAi) ...[const SizedBox(width: 6), _Tag('AI', at.accent)],
+          if (m.user.isBot) ...[const SizedBox(width: 6), _Tag('BOT', const Color(0xFF0E7490))],
           if (m.user.isGuest) ...[const SizedBox(width: 6), _Tag('OSPITE', Colors.orange)],
           const SizedBox(width: 8),
           Text(fmtTime(m.createdAt), style: TextStyle(color: at.muted, fontSize: 12)),
+          if (_receipt(s, at) case final w?) ...[const SizedBox(width: 6), w],
         ]),
       if (m.html.trim().isNotEmpty && !(m.isVoice && m.body.trim().isEmpty))
         HtmlWidget(
@@ -54,7 +57,7 @@ class _MessageTileState extends State<MessageTile> {
             'code' => {'font-family': 'monospace', 'font-size': '13px', 'background-color': _css(at.codeBg), 'color': e.parent?.localName == 'pre' ? _css(at.text) : '#e01e5a'},
             'blockquote' => {'border-left': '4px solid ${_css(at.border)}', 'padding-left': '10px', 'margin': '4px 0', 'color': _css(at.muted)},
             'a' => {'color': _css(at.accent), 'text-decoration': 'none'},
-            'p' => {'margin': '0'},
+            'p' => e.classes.contains('jumbo') ? {'margin': '0', 'font-size': '34px', 'line-height': '1.25'} : {'margin': '0'},
             _ => null,
           },
           customWidgetBuilder: (e) {
@@ -70,6 +73,8 @@ class _MessageTileState extends State<MessageTile> {
             return null;
           },
         ),
+      if (widget.compact)
+        if (_receipt(s, at) case final w?) Align(alignment: Alignment.centerRight, child: w),
       if (m.editedAt != null) Text('(modificato)', style: TextStyle(color: at.muted, fontSize: 11)),
       for (final a in m.attachments) AttachmentView(a, abs: abs),
       for (final p in m.previews) LinkPreviewCard(p, onRemove: m.canEdit && p.kind != 'video_call' ? () => s.removePreview(m, p) : null),
@@ -91,6 +96,18 @@ class _MessageTileState extends State<MessageTile> {
                   child: Text('${r.emoji} ${r.count}', style: TextStyle(fontSize: 13, color: r.me ? at.accent : at.text, fontWeight: FontWeight.w600)),
                 ),
               ),
+            Tooltip(
+              message: 'Aggiungi reazione',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _pickReaction(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: at.surface2, borderRadius: BorderRadius.circular(12), border: Border.all(color: at.border)),
+                  child: Icon(Icons.add_reaction_outlined, size: 16, color: at.muted),
+                ),
+              ),
+            ),
           ]),
         ),
       if (!widget.inThread && m.replyCount > 0)
@@ -143,6 +160,7 @@ class _MessageTileState extends State<MessageTile> {
                     decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: at.border)),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       for (final e in quickEmojis.take(3)) _ToolBtn(label: e, tooltip: 'Reagisci', onTap: () => s.react(m, e)),
+                      _ToolBtn(icon: Icons.add_reaction_outlined, tooltip: 'Scegli una reazione', onTap: () => _pickReaction(context)),
                       if (!widget.inThread) _ToolBtn(icon: Icons.forum_outlined, tooltip: 'Rispondi nel thread', onTap: () => s.openThread(m)),
                       _ToolBtn(icon: Icons.more_horiz, tooltip: 'Altro', onTap: () => _sheet(context)),
                     ]),
@@ -152,6 +170,25 @@ class _MessageTileState extends State<MessageTile> {
           ]),
         ),
       ),
+    );
+  }
+
+  Future<void> _pickReaction(BuildContext context) async {
+    final s = context.read<AppState>();
+    final e = await pickEmoji(context);
+    if (e != null) await s.react(m, e);
+  }
+
+  /// Conferma di lettura sui propri messaggi: una spunta = inviato, due spunte = letto (blu se letto da tutti).
+  Widget? _receipt(AppState s, AT at) {
+    if (!s.readReceiptsEnabled || m.user.id != s.me?.id || m.id <= 0) return null;
+    final readers = s.readersOf(m);
+    final others = s.othersIn(m.channelId);
+    final all = others.isNotEmpty && readers.length >= others.length;
+    final tip = readers.isEmpty ? 'Inviato' : 'Letto da ${readers.map((r) => r.name).take(8).join(', ')}${readers.length > 8 ? ' e altri ${readers.length - 8}' : ''}';
+    return Tooltip(
+      message: tip,
+      child: Icon(readers.isEmpty ? Icons.check : Icons.done_all, size: 15, color: all ? const Color(0xFF1D9BD1) : at.muted),
     );
   }
 
@@ -175,6 +212,17 @@ class _MessageTileState extends State<MessageTile> {
                   },
                   child: Container(width: 44, height: 44, alignment: Alignment.center, decoration: BoxDecoration(color: at.surface2, shape: BoxShape.circle), child: Text(e, style: const TextStyle(fontSize: 22))),
                 ),
+              Tooltip(
+                message: 'Altre emoji',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(22),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickReaction(context);
+                  },
+                  child: Container(width: 44, height: 44, alignment: Alignment.center, decoration: BoxDecoration(color: at.surface2, shape: BoxShape.circle), child: Icon(Icons.add_reaction_outlined, size: 22, color: at.muted)),
+                ),
+              ),
             ]),
           ),
           if (!widget.inThread)

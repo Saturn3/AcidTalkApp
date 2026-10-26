@@ -22,9 +22,11 @@ class AppUser {
   final String avatarColor;
   final bool online;
   final bool isAi;
+  final bool isBot;
+  final String? avatarUrl;
   final Map<String, dynamic> prefs;
 
-  AppUser({this.id, required this.name, required this.initials, this.email, this.title, this.role = 'member', this.avatarColor = '#4a154b', this.online = false, this.isAi = false, this.prefs = const {}});
+  AppUser({this.id, required this.name, required this.initials, this.email, this.title, this.role = 'member', this.avatarColor = '#4a154b', this.online = false, this.isAi = false, this.isBot = false, this.avatarUrl, this.prefs = const {}});
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
         id: j['id'] == null ? null : asInt(j['id']),
@@ -36,12 +38,16 @@ class AppUser {
         avatarColor: (j['avatar_color'] ?? '#4a154b') as String,
         online: j['online'] == true || j['is_online'] == true,
         isAi: j['is_ai'] == true,
+        isBot: j['is_bot'] == true,
+        avatarUrl: (j['avatar_url'] as String?)?.isNotEmpty == true ? j['avatar_url'] as String : null,
         prefs: (j['notification_prefs'] is Map) ? Map<String, dynamic>.from(j['notification_prefs']) : const {},
       );
 
   bool get isAdmin => role == 'admin';
   bool get isGuest => role == 'guest';
   String get themePref => (prefs['theme'] as String?) ?? 'light';
+  /// Nome usato nelle menzioni: i bot si menzionano con il nome senza spazi (@nomebot).
+  String get mentionHandle => isAi ? 'ai' : isBot ? name.toLowerCase().replaceAll(RegExp(r'[^\p{L}\d._-]+', unicode: true), '') : name.split(' ').first;
 
   static String _initials(String n) {
     final p = n.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
@@ -161,9 +167,11 @@ class Message {
   final DateTime? editedAt;
   final DateTime createdAt;
   final bool canEdit, canDelete;
+  /// Attività ancora da eseguire dopo l'invio: ai | previews | bots
+  final List<String> pending;
   final String raw; // per confronti rapidi durante la sincronizzazione
 
-  Message({required this.id, required this.channelId, this.parentId, required this.user, required this.body, required this.html, required this.kind, required this.isAi, required this.attachments, required this.previews, required this.reactions, required this.replyCount, this.lastReplyAt, this.editedAt, required this.createdAt, required this.canEdit, required this.canDelete, this.raw = ''});
+  Message({required this.id, required this.channelId, this.parentId, required this.user, required this.body, required this.html, required this.kind, required this.isAi, required this.attachments, required this.previews, required this.reactions, required this.replyCount, this.lastReplyAt, this.editedAt, required this.createdAt, required this.canEdit, required this.canDelete, this.pending = const [], this.raw = ''});
 
   factory Message.fromJson(Map<String, dynamic> j) => Message(
         id: asInt(j['id']),
@@ -183,10 +191,21 @@ class Message {
         createdAt: parseDate(j['created_at']) ?? DateTime.now(),
         canEdit: j['can_edit'] == true,
         canDelete: j['can_delete'] == true,
+        pending: (((j['meta'] is Map ? j['meta']['pending'] : null) as List?) ?? const []).map((e) => '$e').toList(),
         raw: '${j['html']}|${j['edited_at']}|${j['reply_count']}|${j['reactions']}|${j['link_previews']}|${j['attachments']?.length}',
       );
 
   bool get isVoice => kind == 'voice' && attachments.isNotEmpty;
+}
+
+/// Conferma di lettura: fino a quando un membro ha letto il canale.
+class ReadReceipt {
+  final int userId;
+  final String name;
+  final DateTime? lastReadAt;
+  ReadReceipt(this.userId, this.name, this.lastReadAt);
+  factory ReadReceipt.fromJson(Map<String, dynamic> j) => ReadReceipt(asInt(j['user_id']), (j['name'] ?? '') as String, parseDate(j['last_read_at']));
+  static List<ReadReceipt> list(dynamic v) => ((v as List?) ?? const []).map((e) => ReadReceipt.fromJson(Map<String, dynamic>.from(e as Map))).toList();
 }
 
 class AppNotification {
@@ -220,8 +239,10 @@ class OrgConfig {
   final int dmDays;
   final int channelDays;
   final Map<String, dynamic>? realtime;
+  final bool readReceipts;
+  final bool pushEnabled;
 
-  OrgConfig({this.name = 'AcidTalk', this.aiBotName = 'AI', this.maxUploadMb = 25, this.dmDays = 60, this.channelDays = 90, this.realtime});
+  OrgConfig({this.name = 'AcidTalk', this.aiBotName = 'AI', this.maxUploadMb = 25, this.dmDays = 60, this.channelDays = 90, this.realtime, this.readReceipts = true, this.pushEnabled = false});
 
   factory OrgConfig.fromJson(Map<String, dynamic> j) {
     final o = Map<String, dynamic>.from(j['org'] ?? const {});
@@ -232,6 +253,8 @@ class OrgConfig {
       dmDays: asInt(o['sidebar_dm_days'], 60),
       channelDays: asInt(o['sidebar_channel_days'], 90),
       realtime: j['realtime'] is Map ? Map<String, dynamic>.from(j['realtime']) : null,
+      readReceipts: o['read_receipts'] != false,
+      pushEnabled: o['push_enabled'] == true,
     );
   }
 }
