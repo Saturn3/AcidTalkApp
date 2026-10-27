@@ -6,6 +6,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/composer.dart';
+import '../widgets/dialogs.dart';
 import '../widgets/drop_zone.dart';
 import '../widgets/message_tile.dart';
 
@@ -17,7 +18,19 @@ class MessageList extends StatefulWidget {
   final Widget? header;
   final Widget? footer; // es. indicatore "l'assistente sta scrivendo"
   final void Function(Message) onEdit;
-  const MessageList({super.key, required this.messages, this.loading = false, this.hasMore = false, this.inThread = false, this.onLoadMore, this.header, this.footer, required this.onEdit});
+  final int? focusId; // messaggio da portare in vista ed evidenziare
+  const MessageList({
+    super.key,
+    required this.messages,
+    this.loading = false,
+    this.hasMore = false,
+    this.inThread = false,
+    this.onLoadMore,
+    this.header,
+    this.footer,
+    required this.onEdit,
+    this.focusId,
+  });
 
   @override
   State<MessageList> createState() => _MessageListState();
@@ -25,6 +38,26 @@ class MessageList extends StatefulWidget {
 
 class _MessageListState extends State<MessageList> {
   final _scroll = ScrollController();
+  final _focusKey = GlobalKey();
+  int? _scrolledTo;
+
+  /// Porta in vista il messaggio evidenziato: la lista è costruita in modo pigro, quindi prima salta
+  /// a una posizione stimata e poi, quando l'elemento esiste, lo centra.
+  Future<void> _bringIntoView(int index, int total) async {
+    for (var i = 0; i < 8; i++) {
+      if (!mounted) return;
+      final ctx = _focusKey.currentContext;
+      if (ctx != null && ctx.mounted) {
+        await Scrollable.ensureVisible(ctx, alignment: .5, duration: const Duration(milliseconds: 250));
+        return;
+      }
+      if (!_scroll.hasClients) return;
+      final p = _scroll.position;
+      final guess = p.maxScrollExtent * (index / total.clamp(1, 1 << 30));
+      p.jumpTo((i == 0 ? guess : p.pixels + (guess > p.pixels ? 1 : -1) * p.viewportDimension * .8).clamp(0.0, p.maxScrollExtent));
+      await WidgetsBinding.instance.endOfFrame;
+    }
+  }
 
   @override
   void initState() {
@@ -52,9 +85,32 @@ class _MessageListState extends State<MessageList> {
       final newDay = prev == null || !DateUtils.isSameDay(prev.createdAt, m.createdAt);
       if (newDay) items.add(_DayDivider(fmtDay(m.createdAt)));
       final compact = !newDay && prev.user.id == m.user.id && m.createdAt.difference(prev.createdAt).inMinutes < 5 && prev.kind != 'call';
-      items.add(MessageTile(key: ValueKey(m.id), m: m, compact: compact, inThread: widget.inThread, onEdit: widget.onEdit));
+      final tile = MessageTile(key: ValueKey(m.id), m: m, compact: compact, inThread: widget.inThread, onEdit: widget.onEdit);
+      items.add(
+        m.id == widget.focusId
+            ? AnimatedContainer(
+                key: _focusKey,
+                duration: const Duration(milliseconds: 300),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: .16),
+                  border: const Border(left: BorderSide(color: Colors.amber, width: 3)),
+                ),
+                child: tile,
+              )
+            : tile,
+      );
     }
     final rev = [if (widget.footer != null) widget.footer!, ...items.reversed];
+    final fid = widget.focusId;
+    if (fid != null && fid != _scrolledTo) {
+      final idx = rev.indexWhere((w) => w.key == _focusKey);
+      if (idx >= 0) {
+        _scrolledTo = fid;
+        WidgetsBinding.instance.addPostFrameCallback((_) => _bringIntoView(idx, rev.length));
+      }
+    } else if (fid == null) {
+      _scrolledTo = null;
+    }
     return ListView.builder(
       controller: _scroll,
       reverse: true,
@@ -184,6 +240,11 @@ class _ChatViewState extends State<ChatView> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Cerca in questa conversazione',
+            icon: const Icon(Icons.search),
+            onPressed: () => showSearchSheet(context, channel: c),
+          ),
           if (!c.isAi && !c.isArchived)
             IconButton(
               tooltip: 'Avvia videochiamata',
@@ -221,6 +282,7 @@ class _ChatViewState extends State<ChatView> {
             Expanded(
               child: MessageList(
                 key: ValueKey('ch-${c.id}'),
+                focusId: s.focusMessageId,
                 messages: msgs,
                 loading: s.loading.contains(c.id),
                 hasMore: s.hasMore[c.id] ?? false,
@@ -306,6 +368,7 @@ class _ThreadViewState extends State<ThreadView> {
             Expanded(
               child: MessageList(
                 key: ValueKey('th-${root.id}'),
+                focusId: s.focusMessageId,
                 inThread: true,
                 messages: [root, ...s.threadReplies],
                 footer: s.aiTyping.contains('t${root.id}') ? TypingRow(name: s.org.aiBotName) : null,

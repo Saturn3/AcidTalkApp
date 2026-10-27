@@ -7,6 +7,8 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import 'common.dart';
 
+export 'search_sheet.dart' show showSearchSheet;
+
 Future<void> showNewDm(BuildContext context, {VoidCallback? onOpened}) async {
   final s = context.read<AppState>();
   final users = await s.api!.users().catchError((_) => <AppUser>[]);

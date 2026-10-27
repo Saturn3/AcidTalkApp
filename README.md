@@ -1,4 +1,4 @@
-# AcidTalk — app Flutter 2.5.1 (Android, iOS, Windows, macOS)
+# AcidTalk — app Flutter 2.6 (Android, iOS, Windows, macOS)
 
 Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedono il backend 2.4). Un unico codice Flutter produce:
 
@@ -11,6 +11,12 @@ Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedo
 | Linux | `flutter build linux` | non incluso nella CI, usato per i test |
 
 ## Funzionalità
+
+### Novità 2.6
+
+- **Ricerca nei messaggi**: icona di ricerca nella barra laterale e nell'intestazione della chat, oppure Ctrl+K / Cmd+K su desktop. Si cerca nella conversazione aperta o in tutti i canali; i risultati mostrano autore, canale, data ed estratto con il testo evidenziato. Toccando un risultato si apre il canale (o il thread), vengono caricati i messaggi precedenti se serve e il messaggio viene evidenziato.
+- **Configurazione del server su SiteGround**: l'app legge ora `GET /api/client-config` (backend 2.6). Il firewall di SiteGround blocca con un 403 le URL che terminano in `/api/config`: per questo l'app restava in "Sincronizzazione attiva" anche con Pusher configurato e segnalava Firebase non configurato sul server. Con un backend precedente l'app ripiega su `/api/config`.
+- **Diagnosi della sincronizzazione**: nel profilo e nel tooltip della barra laterale è indicato il motivo reale (configurazione non letta, WebSocket non configurato, errore di Pusher come chiave o cluster errati), con un pulsante per rileggere la configurazione. L'app ritenta in automatico circa ogni minuto e al ritorno in primo piano.
 
 ### Novità 2.5.1
 

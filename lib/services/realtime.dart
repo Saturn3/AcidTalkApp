@@ -16,6 +16,9 @@ class RealtimeClient {
   final RealtimeHandler onEvent;
   final void Function(bool connected)? onState;
 
+  /// Ultimo errore di connessione o del protocollo (es. "App key ... not in this cluster"), per la diagnosi.
+  String? lastError;
+
   WebSocketChannel? _ws;
   StreamSubscription? _sub;
   String? _socketId;
@@ -42,9 +45,22 @@ class RealtimeClient {
     if (_closed) return;
     try {
       _ws = WebSocketChannel.connect(_uri);
-      _sub = _ws!.stream.listen(_onData, onError: (_) => _drop(), onDone: _drop, cancelOnError: true);
+      _sub = _ws!.stream.listen(
+        _onData,
+        onError: (e) {
+          lastError = '$e'.replaceFirst('WebSocketChannelException: ', '');
+          _drop();
+        },
+        onDone: () {
+          final code = _ws?.closeCode;
+          if (code != null && code >= 4000) lastError ??= 'connessione chiusa dal server (codice $code)';
+          _drop();
+        },
+        cancelOnError: true,
+      );
     } catch (e) {
       debugPrint('Realtime non disponibile: $e');
+      lastError = '$e';
       _drop();
     }
   }
@@ -60,6 +76,8 @@ class RealtimeClient {
       _send('pusher:subscribe', {'channel': channel, 'auth': auth});
     } catch (e) {
       debugPrint('Sottoscrizione $channel fallita: $e');
+      lastError = 'autorizzazione del canale $channel non riuscita: $e';
+      onState?.call(connected);
     }
   }
 
@@ -78,6 +96,7 @@ class RealtimeClient {
       case 'pusher:connection_established':
         _socketId = (data as Map)['socket_id'] as String;
         _attempt = 0;
+        lastError = null;
         connected = true;
         onState?.call(true);
         for (final c in _channels) {
@@ -89,6 +108,10 @@ class RealtimeClient {
         _send('pusher:pong', {});
       case 'pusher:error':
         debugPrint('Realtime: $data');
+        if (data is Map) lastError = '${data['message'] ?? 'errore'}${data['code'] != null ? ' (codice ${data['code']})' : ''}';
+        onState?.call(connected);
+      case 'pusher_internal:subscription_succeeded':
+        break;
       default:
         if (!event.startsWith('pusher')) {
           onEvent(msg['channel'] as String? ?? '', event, data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -91,7 +92,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (_foreground && api != null) _pollOnce();
+    if (_foreground && api != null) {
+      _pollOnce();
+      if (configError != null || _rt == null) reloadConfig();
+    }
   }
 
   // ------------------------------------------------------------ sessione
@@ -130,9 +134,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _afterLogin() async {
     me = await api!.me();
     _applyTheme(me!.themePref);
-    try {
-      org = await api!.config();
-    } catch (_) {}
+    await _loadConfig();
     await refreshChannels();
     await _loadNotifications();
     loadUsers();
@@ -151,6 +153,44 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           if (api != null) return Push.instance.register(api!).then((_) => notifyListeners());
         })
         .catchError((_) {});
+  }
+
+  /// Errore nella lettura della configurazione del server (realtime e push restano disattivati finché non riesce).
+  String? configError;
+  int _cfgTick = 0;
+
+  Future<bool> _loadConfig() async {
+    try {
+      org = await api!.config();
+      configError = null;
+      return true;
+    } catch (e) {
+      configError = '$e';
+      debugPrint('Configurazione non letta: $e');
+      return false;
+    }
+  }
+
+  /// Rilegge la configurazione e, se le impostazioni del WebSocket sono cambiate, riavvia il realtime.
+  Future<void> reloadConfig() async {
+    if (api == null) return;
+    final before = jsonEncode(org.realtime);
+    final ok = await _loadConfig();
+    if (ok && (jsonEncode(org.realtime) != before || (_rt == null && org.realtime != null))) _startRealtime();
+    notifyListeners();
+  }
+
+  /// Spiegazione leggibile dello stato della sincronizzazione (mostrata nel profilo e nel tooltip della barra laterale).
+  String get syncDetail {
+    if (configError != null) return 'Configurazione del server non letta: $configError. Uso la sincronizzazione periodica.';
+    final cfg = org.realtime;
+    if (cfg == null) {
+      return 'Il server non ha un WebSocket configurato (BROADCAST_CONNECTION=pusher o reverb nel file .env, poi php artisan config:cache). Uso la sincronizzazione periodica ogni 6 secondi.';
+    }
+    final where = cfg['driver'] == 'pusher' ? 'Pusher (cluster ${cfg['cluster'] ?? 'eu'})' : 'Reverb (${cfg['host']}:${cfg['port'] ?? ''})';
+    if (realtimeConnected) return 'Connesso in tempo reale a $where${_rt?.lastError != null ? '; ultimo avviso: ${_rt!.lastError}' : ''}.';
+    final err = _rt?.lastError;
+    return 'Connessione a $where non riuscita${err != null ? ': $err' : ' (tentativo in corso)'}. Uso la sincronizzazione periodica.';
   }
 
   Future<void> loadUsers() async {
@@ -408,6 +448,34 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  /// Messaggio da evidenziare (es. aperto da un risultato di ricerca); si azzera da solo dopo qualche secondo.
+  int? focusMessageId;
+  Timer? _focusTimer;
+
+  Future<({List<Message> items, Map<int, String> channels})> search(String q, {int? channelId}) => api!.search(q, channelId: channelId);
+
+  /// Apre il canale (ed eventualmente il thread) di un messaggio e lo evidenzia, caricando i messaggi più vecchi se serve.
+  Future<void> openMessage(Message m) async {
+    if (!channels.any((c) => c.id == m.channelId)) await refreshChannels();
+    await openChannel(m.channelId);
+    if (m.parentId != null) {
+      final t = await api!.thread(m.parentId!);
+      threadRoot = t.root;
+      threadReplies = t.replies;
+    } else {
+      for (var i = 0; i < 12 && !(messages[m.channelId]?.any((x) => x.id == m.id) ?? false) && (hasMore[m.channelId] ?? false); i++) {
+        await loadMessages(m.channelId, older: true);
+      }
+    }
+    focusMessageId = m.id;
+    notifyListeners();
+    _focusTimer?.cancel();
+    _focusTimer = Timer(const Duration(seconds: 5), () {
+      focusMessageId = null;
+      notifyListeners();
+    });
+  }
+
   Future<void> openThread(Message root) async {
     threadRoot = root;
     threadReplies = [];
@@ -520,6 +588,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _poll = Timer.periodic(const Duration(seconds: 6), (_) {
       if (!_foreground && !(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) return;
       if (realtimeConnected && _tick++ % 4 != 0) return;
+      // configurazione non letta (rete assente, firewall): ritenta circa ogni minuto
+      if (configError != null && _cfgTick++ % 10 == 9) reloadConfig();
       _pollOnce();
     });
   }

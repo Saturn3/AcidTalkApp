@@ -21,17 +21,23 @@ class Api {
   late final Dio dio;
 
   Api(this.server, {this.token}) {
-    dio = Dio(BaseOptions(
-      baseUrl: '${server.replaceAll(RegExp(r'/+$'), '')}/api',
-      connectTimeout: const Duration(seconds: 12),
-      receiveTimeout: const Duration(seconds: 40),
-      // X-AcidTalk-Tasks: client → AI, anteprime e bot vengono eseguiti dall'app con runTask()
-      headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-AcidTalk-Tasks': 'client'},
-    ));
-    dio.interceptors.add(InterceptorsWrapper(onRequest: (o, h) {
-      if (token != null) o.headers['Authorization'] = 'Bearer $token';
-      h.next(o);
-    }));
+    dio = Dio(
+      BaseOptions(
+        baseUrl: '${server.replaceAll(RegExp(r'/+$'), '')}/api',
+        connectTimeout: const Duration(seconds: 12),
+        receiveTimeout: const Duration(seconds: 40),
+        // X-AcidTalk-Tasks: client → AI, anteprime e bot vengono eseguiti dall'app con runTask()
+        headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-AcidTalk-Tasks': 'client'},
+      ),
+    );
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (o, h) {
+          if (token != null) o.headers['Authorization'] = 'Bearer $token';
+          h.next(o);
+        },
+      ),
+    );
   }
 
   /// URL assoluto per allegati e immagini (il backend può restituire percorsi relativi).
@@ -74,13 +80,21 @@ class Api {
   Future<AppUser> me() async => AppUser.fromJson(_one(await _req(() => dio.get('/me'))));
   Future<AppUser> updatePrefs(Map<String, dynamic> prefs) async => AppUser.fromJson(_one(await _req(() => dio.put('/me', data: {'notification_prefs': prefs}))));
 
+  /// Configurazione dell'organizzazione (realtime, push, limiti). Usa `/client-config` (backend 2.6+) perché
+  /// alcuni firewall di hosting (es. SiteGround) bloccano con un 403 le URL che terminano in `/config`.
   Future<OrgConfig> config() async {
-    try {
-      return OrgConfig.fromJson(Map<String, dynamic>.from(await _req(() => dio.get('/config'))));
-    } on ApiException catch (e) {
-      if (e.status == 404) return OrgConfig(); // backend < 2.3
-      rethrow;
+    for (final path in ['/client-config', '/config']) {
+      try {
+        final r = await _req(() => dio.get(path));
+        if (r is! Map) throw ApiException('risposta non valida da $path (pagina del firewall dell\'hosting?)', 0);
+        return OrgConfig.fromJson(Map<String, dynamic>.from(r));
+      } on ApiException catch (e) {
+        if (e.status == 404) continue; // backend precedente: prova l'indirizzo successivo
+        if (path == '/config' && e.status == 403) throw ApiException('il server ha bloccato /api/config (403): aggiorna il backend alla 2.6, che usa /api/client-config', 403);
+        rethrow;
+      }
     }
+    return OrgConfig(); // backend < 2.3
   }
 
   // ---------------- canali
@@ -96,13 +110,19 @@ class Api {
     final r = await _req(() => dio.post('/channels/$channelId/calls', data: {'url': ?url}));
     return Message.fromJson(Map<String, dynamic>.from(r['message'] as Map));
   }
+
   Future<List<AppUser>> users() async => _list(await _req(() => dio.get('/users'))).map(AppUser.fromJson).toList();
 
   // ---------------- messaggi
   Future<({List<Message> items, bool hasMore, String? serverTime, List<ReadReceipt>? reads})> messages(int channelId, {int? before, int? after, int limit = 50}) async {
     final r = await _req(() => dio.get('/channels/$channelId/messages', queryParameters: {'limit': limit, 'before': ?before, 'after': ?after}));
     final meta = (r is Map ? r['meta'] : null) as Map?;
-    return (items: _list(r).map(Message.fromJson).toList(), hasMore: meta?['has_more'] == true, serverTime: meta?['server_time'] as String?, reads: meta?['reads'] is List ? ReadReceipt.list(meta!['reads']) : null);
+    return (
+      items: _list(r).map(Message.fromJson).toList(),
+      hasMore: meta?['has_more'] == true,
+      serverTime: meta?['server_time'] as String?,
+      reads: meta?['reads'] is List ? ReadReceipt.list(meta!['reads']) : null,
+    );
   }
 
   /// Esegue un'attività del messaggio appena inviato (ai | previews | bots): sincrona e idempotente.
@@ -135,11 +155,16 @@ class Api {
   /// Sincronizzazione senza WebSocket: messaggi modificati/eliminati dopo [since].
   Future<({List<Message> changed, List<int> deleted, String? serverTime})> changes(int channelId, String since, {int? thread}) async {
     final r = await _req(() => dio.get('/channels/$channelId/messages', queryParameters: {'changed_since': since, 'thread': ?thread}));
-    return (
-      changed: _list(r).map(Message.fromJson).toList(),
-      deleted: ((r['deleted'] as List?) ?? const []).map((e) => asInt(e)).toList(),
-      serverTime: (r['meta'] as Map?)?['server_time'] as String?,
-    );
+    return (changed: _list(r).map(Message.fromJson).toList(), deleted: ((r['deleted'] as List?) ?? const []).map((e) => asInt(e)).toList(), serverTime: (r['meta'] as Map?)?['server_time'] as String?);
+  }
+
+  /// Ricerca testuale nei messaggi dei canali accessibili (ultimi 40 risultati); `channels` mappa id → nome visualizzato.
+  Future<({List<Message> items, Map<int, String> channels})> search(String q, {int? channelId}) async {
+    final r = await _req(() => dio.get('/search', queryParameters: {'q': q, 'channel_id': ?channelId}));
+    final names = <int, String>{};
+    final c = r is Map ? r['channels'] : null;
+    if (c is Map) c.forEach((k, v) => names[asInt(k)] = '$v');
+    return (items: _list(r).map(Message.fromJson).toList(), channels: names);
   }
 
   Future<({Message root, List<Message> replies})> thread(int messageId) async {
