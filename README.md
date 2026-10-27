@@ -118,6 +118,42 @@ flutter pub get && flutter build windows
 git checkout pubspec.yaml lib/services/push.dart   # per tornare alla versione con Firebase
 ```
 
+## Windows: errore "Impossibile accedere al dispositivo, al percorso o al file specificato"
+
+Le build della CI non sono firmate digitalmente. Su Windows 11 **Smart App Control**, alcuni criteri aziendali (regole ASR di Defender, AppLocker) e alcuni antivirus bloccano gli eseguibili non firmati scaricati da internet, e Windows mostra questo messaggio sia per il setup sia per `acidtalk.exe`. I file della release sono integri: si tratta di un blocco del sistema, non di un errore dell'app.
+
+Soluzioni immediate, da provare in ordine:
+
+1. **Sblocca il file**: tasto destro su `AcidTalk-windows-setup.exe` (o sullo zip *prima* di estrarlo) › Proprietà › spunta **Sblocca** › OK. In PowerShell: `Get-ChildItem $env:USERPROFILE\Downloads\AcidTalk* | Unblock-File`.
+2. **Zip**: estrai tutto il contenuto (tasto destro › Estrai tutto) in una cartella locale, ad esempio `C:\Users\<nome>\AcidTalk`, e non avviare `acidtalk.exe` dall'anteprima dello zip, da una cartella di rete o da OneDrive con file "solo online".
+3. **Antivirus**: controlla in Sicurezza di Windows › Protezione da virus e minacce › Cronologia protezione se il file è stato bloccato o messo in quarantena e, nel caso, consentilo.
+4. **Smart App Control**: in Sicurezza di Windows › Controllo app e browser › Impostazioni di Smart App Control. Se è *Attivato* blocca qualunque app non firmata; disattivarlo sblocca AcidTalk, ma **non si può riattivare senza reinstallare Windows**: valutalo bene, oppure usa la firma del codice.
+5. **PC aziendali gestiti** (Intune/criteri di dominio): serve l'eccezione dell'amministratore IT oppure la build firmata.
+
+### Firma dell'app Windows (soluzione definitiva)
+
+La CI firma `acidtalk.exe`, le DLL e il setup con **Azure Artifact Signing** (ex Trusted Signing) quando sono configurati questi valori nel repository:
+
+| Nome | Tipo | Valore |
+|---|---|---|
+| `AZURE_TENANT_ID` | secret | ID tenant di Microsoft Entra |
+| `AZURE_CLIENT_ID` | secret | ID applicazione della App Registration usata per firmare |
+| `AZURE_CLIENT_SECRET` | secret | segreto client della App Registration |
+| `WINDOWS_SIGNING_ENDPOINT` | variable | endpoint della regione, ad esempio `https://weu.codesigning.azure.net/` |
+| `WINDOWS_SIGNING_ACCOUNT` | variable | nome dell'account Artifact Signing |
+| `WINDOWS_SIGNING_PROFILE` | variable | nome del profilo certificato (Public Trust) |
+
+Passi su Azure:
+
+1. Crea l'account Artifact Signing.
+2. Completa la convalida dell'identità dell'organizzazione (AcidSoft).
+3. Crea un profilo certificato *Public Trust*.
+4. Assegna alla App Registration il ruolo **Artifact Signing Certificate Profile Signer** sull'account.
+
+Senza questi valori i passaggi di firma vengono saltati e la build resta non firmata come oggi. Il passo "Verifica firma" del workflow mostra lo stato della firma di `acidtalk.exe` e del setup.
+
+Con la firma Smart App Control lascia avviare l'app. SmartScreen può mostrare ancora l'avviso "app non riconosciuta" per le prime installazioni, finché il certificato non acquisisce reputazione.
+
 ## Note sulle piattaforme
 
 - **Messaggi vocali registrati dal browser** (formato WebM/Opus): si ascoltano su Android, Windows e Linux; su iPhone e Mac il formato non è supportato da Apple e il player lo segnala. I vocali registrati dall'app (AAC .m4a) funzionano ovunque.

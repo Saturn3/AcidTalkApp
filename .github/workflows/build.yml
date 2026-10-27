@@ -111,6 +111,16 @@ jobs:
   windows:
     needs: analyze
     runs-on: windows-latest
+    env:
+      # Firma del codice facoltativa con Azure Artifact Signing (vedi README, "Firma dell'app Windows").
+      # Senza firma Windows 11 (Smart App Control, criteri aziendali, alcuni antivirus) può bloccare
+      # setup ed eseguibile con "Impossibile accedere al dispositivo, al percorso o al file specificato".
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+      SIGNING_ACCOUNT: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+      SIGNING_PROFILE: ${{ vars.WINDOWS_SIGNING_PROFILE }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -120,6 +130,22 @@ jobs:
         shell: bash
       - run: flutter pub get
       - run: flutter build windows --release --dart-define=ACIDTALK_SERVER=${{ env.ACIDTALK_SERVER }}
+      - name: Firma eseguibile e DLL
+        if: env.AZURE_CLIENT_ID != '' && env.SIGNING_ACCOUNT != ''
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ env.AZURE_TENANT_ID }}
+          azure-client-id: ${{ env.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ env.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ env.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\build\windows\x64\runner\Release
+          files-folder-filter: exe,dll
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
       - name: Crea pacchetto zip
         shell: pwsh
         run: |
@@ -130,6 +156,27 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=2.4.1 /DSourceDir="$pwd\build\windows\x64\runner\Release" /O"$pwd\dist" windows\installer.iss
+      - name: Firma installer
+        if: env.AZURE_CLIENT_ID != '' && env.SIGNING_ACCOUNT != ''
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ env.AZURE_TENANT_ID }}
+          azure-client-id: ${{ env.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ env.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ env.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\dist\AcidTalk-windows-setup.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verifica firma
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/AcidTalk-windows-setup.exe, build/windows/x64/runner/Release/acidtalk.exe | ForEach-Object {
+            $sig = Get-AuthenticodeSignature $_.FullName
+            Write-Host "$($_.Name): $($sig.Status) $($sig.SignerCertificate.Subject)"
+          }
       - uses: actions/upload-artifact@v4
         with: { name: acidtalk-windows, path: dist/*, retention-days: 30 }
 
