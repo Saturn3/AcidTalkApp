@@ -87,8 +87,14 @@ class ComposerState extends State<Composer> {
           return KeyEventResult.handled;
         }
       }
-      if (_desktop && e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.enter && !HardwareKeyboard.instance.isShiftPressed) {
-        _submit();
+      if (_desktop && e is KeyDownEvent && (e.logicalKey == LogicalKeyboardKey.enter || e.logicalKey == LogicalKeyboardKey.numpadEnter)) {
+        final kb = HardwareKeyboard.instance;
+        // Alt+Invio o Shift+Invio vanno a capo (continuando l'eventuale elenco), Invio invia.
+        if (kb.isAltPressed || kb.isShiftPressed) {
+          _text.value = newlineWithList(_text.value);
+        } else {
+          _submit();
+        }
         return KeyEventResult.handled;
       }
       if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.escape && _editing != null) {
@@ -98,10 +104,91 @@ class ComposerState extends State<Composer> {
       return KeyEventResult.ignored;
     };
     _text.addListener(() {
+      if (_listContinue()) return;
       _emojiWatch();
       _refWatch();
       setState(() {});
     });
+  }
+
+  // ---- elenchi puntati e numerati ----
+  String _prevText = '';
+  bool _listBusy = false;
+  static final _listRe = RegExp(r'^(\s*)(?:([-*•])|(\d{1,4})([.)]))\s(.*)$');
+
+  /// Inserisce un a capo al cursore: dentro un elenco ripete il punto (o il numero successivo);
+  /// su una voce vuota termina l'elenco togliendo il punto.
+  static TextEditingValue newlineWithList(TextEditingValue v) {
+    final t = v.text;
+    final sel = v.selection;
+    final start = sel.isValid ? sel.start : t.length;
+    final end = sel.isValid ? sel.end : t.length;
+    final ls = start == 0 ? 0 : t.lastIndexOf('\n', start - 1) + 1;
+    final m = _listRe.firstMatch(t.substring(ls, start));
+    if (m != null && m.group(5)!.trim().isEmpty && start == end && (end == t.length || t[end] == '\n')) {
+      return TextEditingValue(
+        text: t.replaceRange(ls, start, ''),
+        selection: TextSelection.collapsed(offset: ls),
+      );
+    }
+    var ins = '\n';
+    if (m != null) {
+      final n = m.group(3);
+      ins = '\n${m.group(1)}${n != null ? '${int.parse(n) + 1}${m.group(4)}' : m.group(2)} ';
+    }
+    return TextEditingValue(
+      text: t.replaceRange(start, end, ins),
+      selection: TextSelection.collapsed(offset: start + ins.length),
+    );
+  }
+
+  /// Aggiunge o toglie "- " all'inizio di tutte le righe selezionate (o della riga del cursore).
+  static TextEditingValue toggleBullets(TextEditingValue v) {
+    final t = v.text;
+    final sel = v.selection;
+    final start = sel.isValid ? sel.start : t.length;
+    final end = sel.isValid ? sel.end : t.length;
+    final ls = start == 0 ? 0 : t.lastIndexOf('\n', start - 1) + 1;
+    var le = t.indexOf('\n', end);
+    if (le < 0) le = t.length;
+    final lines = t.substring(ls, le).split('\n');
+    final bullet = RegExp(r'^(\s*)[-*•] ');
+    final remove = lines.where((l) => l.trim().isNotEmpty).every(bullet.hasMatch) && lines.any((l) => l.trim().isNotEmpty);
+    final out = [for (final l in lines) remove || bullet.hasMatch(l) || (lines.length > 1 && l.trim().isEmpty) ? l : '- $l'];
+    if (remove) {
+      for (var i = 0; i < lines.length; i++) {
+        final m = bullet.firstMatch(lines[i]);
+        out[i] = m == null ? lines[i] : '${m.group(1)}${lines[i].substring(m.end)}';
+      }
+    }
+    final block = out.join('\n');
+    final delta = block.length - (le - ls);
+    final collapsed = start == end;
+    return TextEditingValue(
+      text: t.replaceRange(ls, le, block),
+      selection: collapsed ? TextSelection.collapsed(offset: (start + (out.first.length - lines.first.length)).clamp(ls, ls + block.length)) : TextSelection(baseOffset: ls, extentOffset: le + delta),
+    );
+  }
+
+  /// Sulla tastiera mobile l'a capo arriva come testo: se è stato appena inserito un "\n", continua l'elenco.
+  bool _listContinue() {
+    final v = _text.value;
+    final prev = _prevText;
+    _prevText = v.text;
+    if (_listBusy || !v.selection.isValid || !v.selection.isCollapsed || v.text.length != prev.length + 1) return false;
+    final p = v.selection.baseOffset;
+    if (p < 1 || v.text[p - 1] != '\n' || v.text.replaceRange(p - 1, p, '') != prev) return false;
+    final r = newlineWithList(
+      TextEditingValue(
+        text: prev,
+        selection: TextSelection.collapsed(offset: p - 1),
+      ),
+    );
+    if (r.text == v.text) return false;
+    _listBusy = true;
+    _text.value = r;
+    _listBusy = false;
+    return true;
   }
 
   // ---- inserimento rapido emoji con ":" (es. :pollice → 👍) ----
@@ -374,6 +461,11 @@ class ComposerState extends State<Composer> {
     }
   }
 
+  void _bullets() {
+    _text.value = toggleBullets(_text.value);
+    _focus.requestFocus();
+  }
+
   void _wrap(String l, [String? r]) {
     final sel = _text.selection;
     final t = _text.text;
@@ -602,15 +694,29 @@ class ComposerState extends State<Composer> {
               padding: const EdgeInsets.fromLTRB(4, 0, 6, 4),
               child: Row(
                 children: [
-                  _Btn(Icons.add_circle_outline, 'Allega file', _recording || _editing != null ? null : _pickFiles),
-                  _Btn(Icons.format_bold, 'Grassetto', _recording ? null : () => _wrap('**')),
-                  _Btn(Icons.format_italic, 'Corsivo', _recording ? null : () => _wrap('_')),
-                  _Btn(Icons.code, 'Codice', _recording ? null : () => _wrap('`')),
-                  _Btn(Icons.data_object, 'Blocco di codice', _recording ? null : () => _wrap('```\n', '\n```')),
-                  _Btn(Icons.alternate_email, 'Menziona una persona (@)', _recording ? null : () => _startRef('@')),
-                  _Btn(Icons.tag, 'Cita un canale (#)', _recording ? null : () => _startRef('#')),
-                  _Btn(Icons.sentiment_satisfied_outlined, 'Emoji (oppure digita : e due lettere)', _recording ? null : _openEmojiPicker),
-                  const Spacer(),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _Btn(Icons.add_circle_outline, 'Allega file', _recording || _editing != null ? null : _pickFiles),
+                          _Btn(Icons.format_bold, 'Grassetto', _recording ? null : () => _wrap('**')),
+                          _Btn(Icons.format_italic, 'Corsivo', _recording ? null : () => _wrap('_')),
+                          _Btn(Icons.code, 'Codice', _recording ? null : () => _wrap('`')),
+                          _Btn(Icons.format_list_bulleted, 'Elenco puntato', _recording ? null : _bullets),
+                          _Btn(Icons.data_object, 'Blocco di codice', _recording ? null : () => _wrap('```\n', '\n```')),
+                          _Btn(Icons.alternate_email, 'Menziona una persona (@)', _recording ? null : () => _startRef('@')),
+                          _Btn(Icons.tag, 'Cita un canale (#)', _recording ? null : () => _startRef('#')),
+                          _Btn(Icons.sentiment_satisfied_outlined, 'Emoji (oppure digita : e due lettere)', _recording ? null : _openEmojiPicker),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (_desktop && !_recording)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Text('Alt+Invio a capo', style: TextStyle(color: at.muted, fontSize: 11.5)),
+                    ),
                   if (!canSend && _editing == null)
                     _Btn(
                       _recording ? Icons.stop_circle_outlined : Icons.mic_none_outlined,

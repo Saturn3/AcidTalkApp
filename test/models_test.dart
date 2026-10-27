@@ -1,6 +1,7 @@
 import 'package:acidtalk/api/models.dart';
 import 'package:acidtalk/state/app_state.dart';
 import 'package:acidtalk/widgets/composer.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -94,5 +95,27 @@ void main() {
     expect(ComposerState.suggestRefs(s, '@', 'bian').single.insert, '@Luca');
     expect(ComposerState.suggestRefs(s, '@', 'met').single.insert, '@meteo');
     expect(ComposerState.suggestRefs(s, '@', 'a').first.insert, '@ai');
+  });
+
+  test('2.5.1: a capo con continuazione degli elenchi e pulsante elenco puntato', () {
+    TextEditingValue v(String t, [int? o]) => TextEditingValue(text: t, selection: TextSelection.collapsed(offset: o ?? t.length));
+    var r = ComposerState.newlineWithList(v('Ciao'));
+    expect(r.text, 'Ciao\n');
+    r = ComposerState.newlineWithList(v('Lista:\n- uno'));
+    expect(r.text, 'Lista:\n- uno\n- ');
+    expect(r.selection.baseOffset, r.text.length);
+    r = ComposerState.newlineWithList(r);
+    expect(r.text, 'Lista:\n- uno\n');
+    expect(ComposerState.newlineWithList(v('1. primo')).text, '1. primo\n2. ');
+    expect(ComposerState.newlineWithList(v('  * sotto')).text, '  * sotto\n  * ');
+    expect(ComposerState.newlineWithList(v('-meno')).text, '-meno\n');
+    r = ComposerState.toggleBullets(v('latte'));
+    expect(r.text, '- latte');
+    expect(r.selection.baseOffset, 7);
+    r = ComposerState.toggleBullets(const TextEditingValue(text: 'a\nb\n\nc', selection: TextSelection(baseOffset: 0, extentOffset: 6)));
+    expect(r.text, '- a\n- b\n\n- c');
+    r = ComposerState.toggleBullets(TextEditingValue(text: r.text, selection: TextSelection(baseOffset: 0, extentOffset: r.text.length)));
+    expect(r.text, 'a\nb\n\nc');
+    expect(ComposerState.toggleBullets(v('')).text, '- ');
   });
 }

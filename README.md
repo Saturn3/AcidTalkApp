@@ -1,4 +1,4 @@
-# AcidTalk — app Flutter 2.5 (Android, iOS, Windows, macOS)
+# AcidTalk — app Flutter 2.5.1 (Android, iOS, Windows, macOS)
 
 Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedono il backend 2.4). Un unico codice Flutter produce:
 
@@ -11,6 +11,13 @@ Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedo
 | Linux | `flutter build linux` | non incluso nella CI, usato per i test |
 
 ## Funzionalità
+
+### Novità 2.5.1
+
+- **A capo su desktop**: Invio invia, Alt+Invio (o Shift+Invio) va a capo, come sul web. Il suggerimento è indicato accanto al pulsante di invio.
+- **Elenchi puntati**: nuovo pulsante *Elenco puntato* nella barra di scrittura (aggiunge o toglie `- ` sulle righe selezionate). Andando a capo dentro un elenco il punto (o il numero successivo, `1.` → `2.`) viene ripetuto; andando a capo su una voce vuota l'elenco termina. Su mobile la continuazione funziona con il tasto a capo della tastiera.
+- La barra dei pulsanti di formattazione scorre in orizzontale sugli schermi stretti.
+- Con il backend 2.5.1 una riga di testo scritta subito dopo un elenco chiude l'elenco invece di finire nell'ultima voce.
 
 ### Novità 2.5
 
