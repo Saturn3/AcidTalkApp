@@ -1,4 +1,4 @@
-# AcidTalk — app Flutter 2.4.1 (Android, iOS, Windows, macOS)
+# AcidTalk — app Flutter 2.5 (Android, iOS, Windows, macOS)
 
 Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedono il backend 2.4). Un unico codice Flutter produce:
 
@@ -11,6 +11,13 @@ Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedo
 | Linux | `flutter build linux` | non incluso nella CI, usato per i test |
 
 ## Funzionalità
+
+### Novità 2.5
+
+- **Menzioni con lista di scelta**: digitando `@` compare l'elenco di persone, assistente AI e bot, filtrato mentre si scrive (nome, cognome o handle); digitando `#` compare l'elenco dei canali pubblici e privati. Su desktop si sceglie con frecce, Invio/Tab ed Esc, su mobile con un tocco. I pulsanti `@` e `#` della barra di scrittura aprono la lista.
+- **Riferimenti ai canali**: `#slug` di un canale esistente diventa un link (anche sul web); toccandolo si apre il canale.
+- **Trascinamento file (Windows, macOS, Linux)**: si possono trascinare uno o più file sulla chat o sul pannello thread per allegarli, con il controllo del limite di dimensione dell'organizzazione. Usa il plugin `desktop_drop`.
+- Richiede il backend 2.5 per i link `#canale`; con un backend precedente la lista funziona ma il riferimento resta testo.
 
 ### Novità 2.4.1
 

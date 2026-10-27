@@ -23,12 +23,17 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool booting = true;
 
   List<Channel> channels = [];
+
+  /// Persone dell'organizzazione per l'autocompletamento delle menzioni @ (caricate dopo il login).
+  List<AppUser> users = [];
   final Map<int, List<Message>> messages = {};
   final Map<int, bool> hasMore = {};
   final Map<int, String> _syncAt = {};
   final Set<int> loading = {};
+
   /// Conferme di lettura per canale
   final Map<int, List<ReadReceipt>> reads = {};
+
   /// Indicatore "sta scrivendo" dell'assistente AI: `c<canale>` o `t<thread>`
   final Set<String> aiTyping = {};
   int? activeId;
@@ -130,6 +135,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {}
     await refreshChannels();
     await _loadNotifications();
+    loadUsers();
     if (activeId == null) {
       final last = _prefs.getInt('last_channel');
       final c = channels.where((c) => c.id == last).firstOrNull ?? channels.where((c) => c.name == 'generale').firstOrNull;
@@ -138,9 +144,29 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _startRealtime();
     _startPolling();
     // prima il permesso notifiche di sistema, poi la registrazione push Firebase (due richieste insieme su Android si annullano)
-    Notifier.instance.requestPermission().catchError((_) => false).then((_) {
-      if (api != null) return Push.instance.register(api!).then((_) => notifyListeners());
-    }).catchError((_) {});
+    Notifier.instance
+        .requestPermission()
+        .catchError((_) => false)
+        .then((_) {
+          if (api != null) return Push.instance.register(api!).then((_) => notifyListeners());
+        })
+        .catchError((_) {});
+  }
+
+  Future<void> loadUsers() async {
+    try {
+      users = await api!.users();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Apre il canale di un link interno (`/app/c/<id>`, ad esempio un riferimento #canale); true se gestito.
+  bool openInternalLink(String url) {
+    final m = RegExp(r'/app/c/(\d+)').firstMatch(url);
+    final base = api?.abs('/') ?? '';
+    if (m == null || (url.startsWith('http') && base.isNotEmpty && !url.startsWith(base.replaceAll(RegExp(r'/$'), '')))) return false;
+    openChannel(int.parse(m.group(1)!));
+    return true;
   }
 
   bool get readReceiptsEnabled => org.readReceipts;
@@ -153,7 +179,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // ------------------------------------------------------------ tema
   void _applyTheme(String pref, {bool notify = true}) {
     themePref = pref;
-    themeMode = switch (pref) { 'dark' => ThemeMode.dark, 'system' => ThemeMode.system, _ => ThemeMode.light };
+    themeMode = switch (pref) {
+      'dark' => ThemeMode.dark,
+      'system' => ThemeMode.system,
+      _ => ThemeMode.light,
+    };
     _prefs.setString('theme', pref);
     if (notify) notifyListeners();
   }
@@ -213,10 +243,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   List<Channel> _sorted(Iterable<Channel> l, SortMode m) {
     final out = l.toList();
     int byName(Channel a, Channel b) => a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    out.sort(m == SortMode.alpha ? byName : (a, b) {
-      final c = b.activity.compareTo(a.activity);
-      return c != 0 ? c : byName(a, b);
-    });
+    out.sort(
+      m == SortMode.alpha
+          ? byName
+          : (a, b) {
+              final c = b.activity.compareTo(a.activity);
+              return c != 0 ? c : byName(a, b);
+            },
+    );
     return out;
   }
 
@@ -330,17 +364,21 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         aiTyping.add(key);
         notifyListeners();
       }
-      api!.runTask(m.id, task).then((r) {
-        if (r.message != null) _upsert(r.message!, onlyExisting: true);
-        for (final x in r.replies) {
-          _upsert(x);
-        }
-      }).catchError((Object e) {
-        if (task == 'ai') lastError = 'Assistente AI: $e';
-      }).whenComplete(() {
-        if (task == 'ai') aiTyping.remove(key);
-        notifyListeners();
-      });
+      api!
+          .runTask(m.id, task)
+          .then((r) {
+            if (r.message != null) _upsert(r.message!, onlyExisting: true);
+            for (final x in r.replies) {
+              _upsert(x);
+            }
+          })
+          .catchError((Object e) {
+            if (task == 'ai') lastError = 'Assistente AI: $e';
+          })
+          .whenComplete(() {
+            if (task == 'ai') aiTyping.remove(key);
+            notifyListeners();
+          });
     }
   }
 
@@ -353,7 +391,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     _runTasks(r);
   }
-
 
   Future<void> delete(Message m) async {
     await api!.delete(m.id);

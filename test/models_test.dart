@@ -1,4 +1,6 @@
 import 'package:acidtalk/api/models.dart';
+import 'package:acidtalk/state/app_state.dart';
+import 'package:acidtalk/widgets/composer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -71,5 +73,26 @@ void main() {
     expect(m.pending, ['ai', 'previews']);
     final o = OrgConfig.fromJson({'org': {'read_receipts': false}, 'push_enabled': true});
     expect(o.readReceipts, isFalse);
+  });
+
+  test('2.5: suggerimenti @persone e #canali', () {
+    final s = AppState();
+    s.channels = [
+      Channel.fromJson({'id': 20, 'name': 'Produzione', 'slug': 'produzione', 'type': 'public'}),
+      Channel.fromJson({'id': 21, 'name': 'Progetto alfa', 'slug': 'progetto-alfa', 'type': 'private'}),
+      Channel.fromJson({'id': 22, 'name': 'Giulia Verdi', 'type': 'dm'}),
+    ];
+    s.users = [
+      AppUser.fromJson({'id': 2, 'name': 'Giulia Verdi', 'title': 'Marketing'}),
+      AppUser.fromJson({'id': 3, 'name': 'Luca Bianchi'}),
+      AppUser.fromJson({'id': 8, 'name': 'Meteo', 'is_bot': true}),
+    ];
+    expect(ComposerState.suggestRefs(s, '#', 'pro').map((r) => r.insert), ['#produzione', '#progetto-alfa']);
+    expect(ComposerState.suggestRefs(s, '#', 'alfa').single.insert, '#progetto-alfa');
+    expect(ComposerState.suggestRefs(s, '#', '').length, 2);
+    expect(ComposerState.suggestRefs(s, '@', 'giu').single.insert, '@Giulia');
+    expect(ComposerState.suggestRefs(s, '@', 'bian').single.insert, '@Luca');
+    expect(ComposerState.suggestRefs(s, '@', 'met').single.insert, '@meteo');
+    expect(ComposerState.suggestRefs(s, '@', 'a').first.insert, '@ai');
   });
 }

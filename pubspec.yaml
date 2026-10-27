@@ -1,7 +1,7 @@
 name: acidtalk
 description: "AcidTalk — client nativo per Android, iOS, Windows e macOS del backend AcidTalk 2.x (Laravel)."
 publish_to: "none"
-version: 2.4.1+25
+version: 2.5.0+26
 
 environment:
   sdk: ^3.9.0
@@ -29,6 +29,7 @@ dependencies:
   http_parser: ^4.1.2
   firebase_core: ^5.1.0
   firebase_messaging: ^17.0.1
+  desktop_drop: ^0.8.0
 
 dev_dependencies:
   flutter_test:

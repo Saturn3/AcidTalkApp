@@ -7,7 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
-const appVersion = '2.4.1';
+const appVersion = '2.5.0';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
