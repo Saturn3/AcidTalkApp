@@ -137,9 +137,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
     _startRealtime();
     _startPolling();
-    Notifier.instance.requestPermission();
-    // notifiche push Firebase (solo se l'app è compilata con le chiavi e il server è configurato)
-    Push.instance.register(api!).catchError((_) {});
+    // prima il permesso notifiche di sistema, poi la registrazione push Firebase (due richieste insieme su Android si annullano)
+    Notifier.instance.requestPermission().catchError((_) => false).then((_) {
+      if (api != null) return Push.instance.register(api!).then((_) => notifyListeners());
+    }).catchError((_) {});
   }
 
   bool get readReceiptsEnabled => org.readReceipts;
@@ -422,6 +423,51 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> readNotification(AppNotification n) async {
     await api!.readNotification(n.id).catchError((_) {});
     await _loadNotifications();
+    notifyListeners();
+  }
+
+  Future<void> readAllNotifications() async {
+    for (final n in notifications) {
+      n.read = true;
+    }
+    unreadNotifications = 0;
+    notifyListeners();
+    try {
+      await api!.readAllNotifications();
+      await Notifier.instance.cancelAll();
+    } catch (e) {
+      lastError = 'Impossibile segnare le notifiche come lette: $e';
+    }
+    await _loadNotifications().catchError((_) {});
+    notifyListeners();
+  }
+
+  Future<void> deleteNotification(AppNotification n) async {
+    notifications.remove(n);
+    if (!n.read && unreadNotifications > 0) unreadNotifications--;
+    notifyListeners();
+    try {
+      await api!.deleteNotification(n.id);
+    } catch (e) {
+      lastError = 'Notifica non eliminata (serve il backend 2.4.1): $e';
+      await _loadNotifications().catchError((_) {});
+      notifyListeners();
+    }
+  }
+
+  Future<void> clearNotifications() async {
+    final backup = notifications;
+    notifications = [];
+    unreadNotifications = 0;
+    notifyListeners();
+    try {
+      await api!.clearNotifications();
+      await Notifier.instance.cancelAll();
+    } catch (e) {
+      notifications = backup;
+      lastError = 'Notifiche non cancellate (serve il backend 2.4.1): $e';
+      await _loadNotifications().catchError((_) {});
+    }
     notifyListeners();
   }
 

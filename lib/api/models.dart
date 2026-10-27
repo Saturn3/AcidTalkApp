@@ -213,7 +213,7 @@ class AppNotification {
   final String from, channelName, excerpt, type;
   final int channelId;
   final int? messageId, parentId;
-  final bool read;
+  bool read;
   final DateTime createdAt;
 
   AppNotification({required this.id, required this.from, required this.channelName, required this.excerpt, required this.type, required this.channelId, this.messageId, this.parentId, required this.read, required this.createdAt});
@@ -223,7 +223,8 @@ class AppNotification {
         from: (j['from'] ?? '') as String,
         channelName: (j['channel_name'] ?? '') as String,
         excerpt: (j['excerpt'] ?? '') as String,
-        type: (j['type'] ?? 'message') as String,
+        // il backend usa "reason" (mention | dm | thread | message)
+        type: (j['reason'] ?? j['type'] ?? 'message') as String,
         channelId: asInt(j['channel_id']),
         messageId: j['message_id'] == null ? null : asInt(j['message_id']),
         parentId: j['parent_id'] == null ? null : asInt(j['parent_id']),

@@ -173,6 +173,9 @@ class Api {
   }
 
   Future<void> readNotification(String id) => _req(() => dio.post('/notifications/$id/read'));
+  Future<void> readAllNotifications() => _req(() => dio.post('/notifications/read-all'));
+  Future<void> deleteNotification(String id) => _req(() => dio.delete('/notifications/$id'));
+  Future<void> clearNotifications() => _req(() => dio.delete('/notifications'));
 
   /// Firma dei canali privati per Pusher/Reverb.
   Future<String> broadcastAuth(String socketId, String channel) async {

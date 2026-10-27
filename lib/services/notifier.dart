@@ -58,6 +58,14 @@ class Notifier {
     return true;
   }
 
+  /// Rimuove dal centro notifiche del sistema le notifiche di AcidTalk già mostrate.
+  Future<void> cancelAll() async {
+    if (!_ready) return;
+    try {
+      await _plugin.cancelAll();
+    } catch (_) {}
+  }
+
   Future<void> show({required int id, required String title, required String body, String? payload}) async {
     if (!_ready) return;
     try {

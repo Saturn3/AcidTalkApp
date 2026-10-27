@@ -1,4 +1,4 @@
-# AcidTalk — app Flutter 2.4 (Android, iOS, Windows, macOS)
+# AcidTalk — app Flutter 2.4.1 (Android, iOS, Windows, macOS)
 
 Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedono il backend 2.4). Un unico codice Flutter produce:
 
@@ -11,6 +11,11 @@ Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedo
 | Linux | `flutter build linux` | non incluso nella CI, usato per i test |
 
 ## Funzionalità
+
+### Novità 2.4.1
+
+- **Pannello notifiche**: pulsanti *Segna tutte come lette* e *Cancella tutte* (con conferma), eliminazione della singola notifica con la X o con uno scorrimento verso sinistra. Le notifiche già mostrate dal sistema vengono rimosse dal centro notifiche. La cancellazione richiede il backend 2.4.1 (`DELETE /api/notifications`).
+- **Android con notifiche push Firebase attive** nelle build della CI (progetto `acidtalk-436e6`, chiavi nei secrets del repository).
 
 ### Novità 2.4
 

@@ -170,50 +170,113 @@ class _ChannelBrowserState extends State<_ChannelBrowser> {
 }
 
 Future<void> showNotificationsSheet(BuildContext context, {VoidCallback? onOpened}) async {
-  final s = context.read<AppState>();
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     constraints: const BoxConstraints(maxWidth: 560),
-    builder: (ctx) {
-      final at = AT.of(ctx);
-      return DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: .6,
-        builder: (_, sc) => Column(children: [
+    builder: (ctx) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: .6,
+      builder: (_, sc) => Consumer<AppState>(builder: (ctx, s, _) {
+        final at = AT.of(ctx);
+        final items = s.notifications;
+        return Column(children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
             child: Row(children: [
-              Expanded(child: Text('Notifiche', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: at.text))),
-              IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+              Expanded(
+                child: Text(s.unreadNotifications > 0 ? 'Notifiche (${s.unreadNotifications} da leggere)' : 'Notifiche',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: at.text)),
+              ),
+              IconButton(tooltip: 'Chiudi', onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
             ]),
           ),
+          if (items.isNotEmpty)
+            Container(
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+              child: Wrap(spacing: 8, runSpacing: 4, children: [
+                TextButton.icon(
+                  onPressed: s.unreadNotifications == 0 ? null : s.readAllNotifications,
+                  icon: const Icon(Icons.done_all, size: 18),
+                  label: const Text('Segna tutte come lette'),
+                ),
+                TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: at.muted),
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: ctx,
+                      builder: (d) => AlertDialog(
+                        title: const Text('Cancellare tutte le notifiche?'),
+                        content: const Text('Le notifiche vengono eliminate dall\'elenco; i messaggi restano nei canali.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Annulla')),
+                          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Cancella tutte')),
+                        ],
+                      ),
+                    );
+                    if (ok == true) await s.clearNotifications();
+                  },
+                  icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+                  label: const Text('Cancella tutte'),
+                ),
+              ]),
+            ),
+          Divider(height: 1, color: at.border),
           Expanded(
-            child: s.notifications.isEmpty
-                ? Center(child: Text('Nessuna notifica', style: TextStyle(color: at.muted)))
+            child: items.isEmpty
+                ? Center(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.notifications_none, size: 40, color: at.muted),
+                      const SizedBox(height: 8),
+                      Text('Nessuna notifica', style: TextStyle(color: at.muted)),
+                    ]),
+                  )
                 : ListView.separated(
                     controller: sc,
-                    itemCount: s.notifications.length,
+                    itemCount: items.length,
                     separatorBuilder: (_, _) => Divider(height: 1, color: at.border),
                     itemBuilder: (_, i) {
-                      final n = s.notifications[i];
-                      return ListTile(
-                        leading: Icon(n.type == 'dm' ? Icons.chat_bubble_outline : (n.type == 'reply' ? Icons.forum_outlined : Icons.alternate_email), color: n.read ? at.muted : at.accent),
-                        title: Text(n.type == 'dm' ? n.from : '${n.from} in #${n.channelName}', style: TextStyle(fontWeight: n.read ? FontWeight.w500 : FontWeight.w800)),
-                        subtitle: Text(n.excerpt, maxLines: 2, overflow: TextOverflow.ellipsis),
-                        trailing: Text(fmtTime(n.createdAt), style: TextStyle(color: at.muted, fontSize: 12)),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          s.readNotification(n);
-                          onOpened?.call();
-                          s.openChannel(n.channelId);
-                        },
+                      final n = items[i];
+                      return Dismissible(
+                        key: ValueKey(n.id),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          color: Colors.red.withValues(alpha: .85),
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          child: const Icon(Icons.delete_outline, color: Colors.white),
+                        ),
+                        onDismissed: (_) => s.deleteNotification(n),
+                        child: ListTile(
+                          leading: Icon(
+                            n.type == 'dm' ? Icons.chat_bubble_outline : (n.type == 'thread' || n.type == 'reply' ? Icons.forum_outlined : (n.type == 'mention' ? Icons.alternate_email : Icons.tag)),
+                            color: n.read ? at.muted : at.accent,
+                          ),
+                          title: Text(n.type == 'dm' ? n.from : '${n.from} in #${n.channelName}', style: TextStyle(fontWeight: n.read ? FontWeight.w500 : FontWeight.w800)),
+                          subtitle: Text(n.excerpt, maxLines: 2, overflow: TextOverflow.ellipsis),
+                          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Text(fmtTime(n.createdAt), style: TextStyle(color: at.muted, fontSize: 12)),
+                            IconButton(
+                              tooltip: 'Elimina notifica',
+                              visualDensity: VisualDensity.compact,
+                              icon: Icon(Icons.close, size: 18, color: at.muted),
+                              onPressed: () => s.deleteNotification(n),
+                            ),
+                          ]),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            s.readNotification(n);
+                            onOpened?.call();
+                            s.openChannel(n.channelId);
+                          },
+                        ),
                       );
                     },
                   ),
           ),
-        ]),
-      );
-    },
+        ]);
+      }),
+    ),
   );
 }

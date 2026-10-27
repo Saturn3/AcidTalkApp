@@ -1,7 +1,7 @@
 ; Installer Windows di AcidTalk (Inno Setup 6). Usato dalla GitHub Action:
-;   ISCC.exe /DAppVersion=2.4.0 /DSourceDir=...\Release /O<dist> windows\installer.iss
+;   ISCC.exe /DAppVersion=2.4.1 /DSourceDir=...\Release /O<dist> windows\installer.iss
 #ifndef AppVersion
-  #define AppVersion "2.4.0"
+  #define AppVersion "2.4.1"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\build\windows\x64\runner\Release"
