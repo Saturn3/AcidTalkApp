@@ -1,6 +1,6 @@
 # AcidTalk — app Flutter 2.6 (Android, iOS, Windows, macOS)
 
-Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedono il backend 2.4). Un unico codice Flutter produce:
+Client nativo per il backend **AcidTalk 2.x** ([Saturn3/AcidTalk](https://github.com/Saturn3/AcidTalk), Laravel; le funzioni 2.4 richiedono il backend 2.4). Un unico codice Flutter produce:
 
 | Piattaforma | Pacchetto prodotto dalla CI | Note |
 |---|---|---|
