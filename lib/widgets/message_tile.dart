@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
@@ -28,38 +30,19 @@ class _MessageTileState extends State<MessageTile> {
 
   Message get m => widget.m;
 
-  @override
-  Widget build(BuildContext context) {
+  bool get _desktop => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
+  /// Sul desktop il testo si seleziona direttamente con il mouse (tasto destro: Copia);
+  /// sui telefoni la pressione prolungata apre il menu, che offre "Seleziona testo".
+  Widget _selectable(BuildContext context, Widget child) => _desktop ? SelectionArea(child: child) : child;
+
+  Widget _htmlBody(BuildContext context, {double fontSize = 15}) {
     final s = context.read<AppState>();
     final at = AT.of(context);
     final abs = s.api!.abs;
-    final body = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (!widget.compact)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Flexible(
-                child: Text(
-                  m.user.name,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontWeight: FontWeight.w800, color: at.text, fontSize: 15),
-                ),
-              ),
-              if (m.user.isAi) ...[const SizedBox(width: 6), _Tag('AI', at.accent)],
-              if (m.user.isBot) ...[const SizedBox(width: 6), _Tag('BOT', const Color(0xFF0E7490))],
-              if (m.user.isGuest) ...[const SizedBox(width: 6), _Tag('OSPITE', Colors.orange)],
-              const SizedBox(width: 8),
-              Text(fmtTime(m.createdAt), style: TextStyle(color: at.muted, fontSize: 12)),
-              if (_receipt(s, at) case final w?) ...[const SizedBox(width: 6), w],
-            ],
-          ),
-        if (m.html.trim().isNotEmpty && !(m.isVoice && m.body.trim().isEmpty))
-          HtmlWidget(
+    return HtmlWidget(
             m.html,
-            textStyle: TextStyle(color: at.text, fontSize: 15, height: 1.4),
+            textStyle: TextStyle(color: at.text, fontSize: fontSize, height: 1.4),
             onTapUrl: (url) {
               if (s.openInternalLink(url)) return true;
               openUrl(url.startsWith('http') ? url : abs(url));
@@ -112,7 +95,39 @@ class _MessageTileState extends State<MessageTile> {
               }
               return null;
             },
+          );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.read<AppState>();
+    final at = AT.of(context);
+    final abs = s.api!.abs;
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!widget.compact)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Flexible(
+                child: Text(
+                  m.user.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.w800, color: at.text, fontSize: 15),
+                ),
+              ),
+              if (m.user.isAi) ...[const SizedBox(width: 6), _Tag('AI', at.accent)],
+              if (m.user.isBot) ...[const SizedBox(width: 6), _Tag('BOT', const Color(0xFF0E7490))],
+              if (m.user.isGuest) ...[const SizedBox(width: 6), _Tag('OSPITE', Colors.orange)],
+              const SizedBox(width: 8),
+              Text(fmtTime(m.createdAt), style: TextStyle(color: at.muted, fontSize: 12)),
+              if (_receipt(s, at) case final w?) ...[const SizedBox(width: 6), w],
+            ],
           ),
+        if (m.html.trim().isNotEmpty && !(m.isVoice && m.body.trim().isEmpty))
+          _selectable(context, _htmlBody(context)),
         if (widget.compact)
           if (_receipt(s, at) case final w?) Align(alignment: Alignment.centerRight, child: w),
         if (m.editedAt != null) Text('(modificato)', style: TextStyle(color: at.muted, fontSize: 11)),
@@ -326,6 +341,15 @@ class _MessageTileState extends State<MessageTile> {
                   s.openThread(m);
                 },
               ),
+            if (m.body.trim().isNotEmpty && !m.isVoice)
+              ListTile(
+                leading: const Icon(Icons.text_fields_outlined),
+                title: const Text('Seleziona testo'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _selectSheet(context);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.copy_outlined),
               title: const Text('Copia testo'),
@@ -369,6 +393,50 @@ class _MessageTileState extends State<MessageTile> {
                 },
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _selectSheet(BuildContext context) {
+    final at = AT.of(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: at.surface,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * .75),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 12, 4),
+                child: Row(
+                  children: [
+                    Expanded(child: Text('Seleziona il testo da copiare', style: TextStyle(color: at.muted, fontSize: 13))),
+                    TextButton.icon(
+                      icon: const Icon(Icons.copy_outlined, size: 18),
+                      label: const Text('Copia tutto'),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: m.body));
+                        Navigator.pop(ctx);
+                        toast(context, 'Testo copiato');
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                  child: SelectionArea(child: _htmlBody(ctx, fontSize: 17)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

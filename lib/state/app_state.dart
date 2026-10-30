@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api.dart';
@@ -61,6 +62,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   String get server => _prefs.getString('server') ?? defaultServer;
   String? get lastEmail => _prefs.getString('email');
 
+  /// Sul desktop la finestra può essere stata chiusa (macOS resta attiva nel Dock):
+  /// il clic su una notifica la riporta in primo piano.
+  void _showWindow() {
+    if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) return;
+    windowManager.show().then((_) => windowManager.focus()).catchError((_) {});
+  }
+
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     WidgetsBinding.instance.addObserver(this);
@@ -68,10 +76,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _applyTheme(_prefs.getString('theme') ?? 'light', notify: false);
     await Notifier.instance.init().timeout(const Duration(seconds: 5), onTimeout: () {}).catchError((_) {});
     Notifier.instance.onTap = (payload) {
+      _showWindow();
       final id = int.tryParse(payload);
       if (id != null) openChannel(id);
     };
-    Push.instance.onOpen = (channelId) => openChannel(channelId);
+    Push.instance.onOpen = (channelId) {
+      _showWindow();
+      openChannel(channelId);
+    };
     Push.instance.onForegroundMessage = () => _pollOnce();
     final token = _prefs.getString('token');
     if (token != null) {

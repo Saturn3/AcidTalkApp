@@ -155,7 +155,7 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=2.6.0 /DSourceDir="$pwd\build\windows\x64\runner\Release" /O"$pwd\dist" windows\installer.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=2.6.1 /DSourceDir="$pwd\build\windows\x64\runner\Release" /O"$pwd\dist" windows\installer.iss
       - name: Firma installer
         if: env.AZURE_CLIENT_ID != '' && env.SIGNING_ACCOUNT != ''
         uses: azure/artifact-signing-action@v2

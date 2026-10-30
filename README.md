@@ -12,6 +12,11 @@ Client nativo per il backend **AcidTalk 2.x** (Laravel; le funzioni 2.4 richiedo
 
 ## Funzionalità
 
+### Novità 2.6.1
+
+- **Testo dei messaggi selezionabile**: su desktop si seleziona trascinando con il mouse e si copia con Ctrl+C / Cmd+C o con il tasto destro. Su Android e iOS la pressione prolungata apre il menu del messaggio con "Seleziona testo" (selezione libera con le maniglie, più "Copia tutto") e "Copia testo".
+- **macOS resta attiva a finestra chiusa**: chiudendo la finestra l'app resta nel Dock e continua a ricevere messaggi e notifiche (App Nap disattivato per non rallentare la sincronizzazione). Un clic sull'icona nel Dock o su una notifica riapre la finestra; per uscire si usa Cmd+Q.
+
 ### Novità 2.6
 
 - **Ricerca nei messaggi**: icona di ricerca nella barra laterale e nell'intestazione della chat, oppure Ctrl+K / Cmd+K su desktop. Si cerca nella conversazione aperta o in tutti i canali; i risultati mostrano autore, canale, data ed estratto con il testo evidenziato. Toccando un risultato si apre il canale (o il thread), vengono caricati i messaggi precedenti se serve e il messaggio viene evidenziato.

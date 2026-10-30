@@ -1,7 +1,7 @@
 name: acidtalk
 description: "AcidTalk — client nativo per Android, iOS, Windows e macOS del backend AcidTalk 2.x (Laravel)."
 publish_to: "none"
-version: 2.6.0+28
+version: 2.6.1+29
 
 environment:
   sdk: ^3.9.0
